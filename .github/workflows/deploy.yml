@@ -24,6 +24,8 @@ jobs:
           node-version: 20
       - name: Enable GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - run: npm install
       - name: Build
         run: npm run build
