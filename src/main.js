@@ -109,9 +109,9 @@ function render() {
     <div class="timerow"><span class="mono" id="curTime">0:00</span><span class="mono muted" id="loopReadout">No loop set</span><span class="mono muted" id="durTime">0:00</span></div>
 
     <div class="transport2">
-      <button class="btn" id="toStart" title="Back to start">⏮</button>
-      <button class="playbtn-sm" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
-      <button class="chip" id="loopToggle" title="Loop on/off (L)">${ICON_LOOP}</button>
+      <button class="btn rndbtn" id="toStart" title="Back to start">⏮</button>
+      <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
+      <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L)">${ICON_LOOP}</button>
       <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,)">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋ Marker</button><button class="btn" id="nextMarker" title="Next marker (.)">▶</button></span>
     </div>
 
