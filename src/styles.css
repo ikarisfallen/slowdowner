@@ -91,8 +91,17 @@ canvas.wave { display: block; width: 100%; height: 150px; touch-action: none; }
 .seg-btn.on { background: rgba(91, 140, 255, 0.22); color: #fff; }
 .seg-btn:disabled { opacity: 0.4; }
 .playbtn-sm { width: 46px; height: 46px; border-radius: 50%; border: none; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-size: 18px; flex: none; color: #fff; }
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); flex: none; color: #fff; }
 .playbtn-sm:active { transform: scale(0.96); }
+.playbtn-sm svg { width: 20px; height: 20px; }
+.playbtn-sm .ic-play { margin-left: 2px; } /* optical centering of the triangle */
+.playbtn-sm .ic-pause { display: none; }
+.playbtn-sm.playing .ic-play { display: none; }
+.playbtn-sm.playing .ic-pause { display: block; margin-left: 0; }
+
+#loopToggle { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+#loopToggle svg { width: 18px; height: 18px; display: block; }
+#loopToggle.on { color: #fff; }
 .playbtn { width: 60px; height: 60px; border-radius: 50%; border: none; display: grid; place-items: center;
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-size: 24px; }
 .playbtn:active { transform: scale(0.96); }
