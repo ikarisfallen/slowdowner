@@ -140,12 +140,9 @@ function render() {
     <div class="transport2">
       <span class="stepgroup"><button class="btn" id="markerLoopPrev" title="Previous span">◀</button><button class="btn primary" id="markerLoopHere" title="Loop the span at the playhead">${ICON_LOOP}</button><button class="btn" id="markerLoopNext" title="Next span">▶</button></span>
       <span class="muted" style="font-size:12px; margin-left:6px">Size</span>
-      <div class="seg" id="spanSeg">
-        <button class="seg-btn" data-span="1">1</button>
-        <button class="seg-btn" data-span="2">2</button>
-        <button class="seg-btn" data-span="3">3</button>
-        <button class="seg-btn" data-span="4">4</button>
-      </div>
+      <select id="spanSelect" class="btn" title="Loop span size (markers)">
+        ${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option value="${n}">${n}</option>`).join('')}
+      </select>
     </div>
 
     <div class="control" style="margin-top:2px">
@@ -816,20 +813,19 @@ function renderMarkers() {
 // ---------- loop between markers ----------
 function setSpan(n) {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  state.span = Math.max(1, Math.min(maxSpan, Math.min(4, Math.round(n))));
-  updateSpanSeg();
+  state.span = Math.max(1, Math.min(maxSpan, Math.min(8, Math.round(n))));
+  updateSpanSelect();
   const maxIdx = state.markers.length - 1 - state.span;
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);
   if (state.markerLoopActive) applyMarkerLoop();
   else updateMarkerLoopReadout();
 }
-function updateSpanSeg() {
+function updateSpanSelect() {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  document.querySelectorAll('#spanSeg .seg-btn').forEach((b) => {
-    const v = Number(b.dataset.span);
-    b.classList.toggle('on', v === state.span);
-    b.disabled = v > maxSpan;
-  });
+  const sel = $('#spanSelect');
+  if (!sel) return;
+  [...sel.options].forEach((o) => { o.disabled = Number(o.value) > maxSpan; });
+  sel.value = String(state.span);
 }
 function markerLoopStart() {
   if (state.markers.length < state.span + 1) {
@@ -873,7 +869,7 @@ function updateMarkerLoopReadout() {
 function clampMarkerLoop() {
   const maxSpan = Math.max(1, state.markers.length - 1);
   if (state.span > maxSpan) state.span = maxSpan;
-  updateSpanSeg();
+  updateSpanSelect();
   const maxIdx = state.markers.length - 1 - state.span;
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);
   if (state.markers.length < state.span + 1) state.markerLoopActive = false;
@@ -1242,7 +1238,7 @@ function wireShell() {
   $('#sectionSelectAll').onchange = (e) => toggleSelectAllSections(e.target.checked);
   $('#deleteSelectedSections').onclick = () => deleteSelectedSections();
 
-  document.querySelectorAll('#spanSeg .seg-btn').forEach((b) => (b.onclick = () => setSpan(Number(b.dataset.span))));
+  $('#spanSelect').onchange = (e) => setSpan(Number(e.target.value));
   $('#markerLoopHere').onclick = () => markerLoopStart();
   $('#markerLoopPrev').onclick = () => markerLoopStep(-1);
   $('#markerLoopNext').onclick = () => markerLoopStep(1);
