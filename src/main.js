@@ -138,7 +138,7 @@ function render() {
 
     <div class="transport2">
       <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,)">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.)">▶</button></span>
-      <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑 Marker</button>
+      <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
     </div>
 
     <div class="transport2">
