@@ -112,16 +112,17 @@ function render() {
       <button class="btn rndbtn" id="toStart" title="Back to start">⏮</button>
       <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
       <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L)">${ICON_LOOP}</button>
-      <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,)">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋ Marker</button><button class="btn" id="nextMarker" title="Next marker (.)">▶</button></span>
+      <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,)">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.)">▶</button></span>
     </div>
 
     <div class="transport2">
-      <span class="stepgroup"><button class="btn" id="markerLoopPrev" title="Previous span">◀</button><button class="btn primary" id="markerLoopHere" title="Loop the span at the playhead">Loop span</button><button class="btn" id="markerLoopNext" title="Next span">▶</button></span>
+      <span class="stepgroup"><button class="btn" id="markerLoopPrev" title="Previous span">◀</button><button class="btn primary" id="markerLoopHere" title="Loop the span at the playhead">${ICON_LOOP}</button><button class="btn" id="markerLoopNext" title="Next span">▶</button></span>
       <span class="muted" style="font-size:12px; margin-left:6px">Size</span>
       <div class="seg" id="spanSeg">
         <button class="seg-btn" data-span="1">1</button>
         <button class="seg-btn" data-span="2">2</button>
         <button class="seg-btn" data-span="3">3</button>
+        <button class="seg-btn" data-span="4">4</button>
       </div>
     </div>
 
@@ -789,7 +790,7 @@ function renderMarkers() {
 // ---------- loop between markers ----------
 function setSpan(n) {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  state.span = Math.max(1, Math.min(maxSpan, Math.min(3, Math.round(n))));
+  state.span = Math.max(1, Math.min(maxSpan, Math.min(4, Math.round(n))));
   updateSpanSeg();
   const maxIdx = state.markers.length - 1 - state.span;
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);

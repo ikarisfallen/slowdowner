@@ -107,6 +107,7 @@ canvas.wave { display: block; width: 100%; height: 150px; touch-action: none; }
 #loopToggle { color: var(--muted); }
 #loopToggle svg { width: 20px; height: 20px; display: block; }
 #loopToggle.on { color: #fff; }
+#markerLoopHere svg { width: 18px; height: 18px; display: block; }
 .playbtn { width: 60px; height: 60px; border-radius: 50%; border: none; display: grid; place-items: center;
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-size: 24px; }
 .playbtn:active { transform: scale(0.96); }
