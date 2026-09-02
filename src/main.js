@@ -15,6 +15,26 @@ function setPlayIcon(playing) {
   if (b) b.classList.toggle('playing', !!playing);
 }
 
+// Keep the phone screen awake while playing (Screen Wake Lock API). Gated to
+// mobile so it doesn't block screensavers on a laptop. The OS drops the lock
+// when the tab is hidden, so it's re-acquired on visibility change while playing.
+const IS_MOBILE = (() => {
+  try { return matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }
+  catch { return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
+})();
+let wakeLock = null;
+async function acquireWakeLock() {
+  if (!IS_MOBILE || !('wakeLock' in navigator) || wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch { /* denied or not visible — ignore */ }
+}
+async function releaseWakeLock() {
+  try { await wakeLock?.release(); } catch {}
+  wakeLock = null;
+}
+
 // ---------- small helpers ----------
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (html) => {
@@ -246,6 +266,7 @@ function teardownCtx() {
   state.limiter = null;
   state.playing = false;
   setPlayIcon(false);
+  releaseWakeLock();
 }
 
 let recovering = false;
@@ -291,6 +312,7 @@ async function recoverAudio(reason) {
         state.engine.play();
         state.playing = true;
         setPlayIcon(true);
+        acquireWakeLock();
         raf = requestAnimationFrame(loop);
       }
     }
@@ -494,6 +516,7 @@ async function togglePlay() {
   state.engine.play();
   state.playing = true;
   setPlayIcon(true);
+  acquireWakeLock();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'playing';
   raf = requestAnimationFrame(loop);
 }
@@ -503,6 +526,7 @@ function pausePlayback() {
   state.engine.pause();
   state.playing = false;
   setPlayIcon(false);
+  releaseWakeLock();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
 }
@@ -1174,6 +1198,12 @@ function wireShell() {
   };
   document.addEventListener('visibilitychange', maybeAutoSync);
   window.addEventListener('focus', maybeAutoSync);
+
+  // The OS releases the screen wake lock when the tab is hidden; re-acquire it
+  // when we come back if a track is still playing.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state.playing) acquireWakeLock();
+  });
 
   $('#libraryToggle').onclick = () => toggleLibraryPanel();
   $('#librarySearch').addEventListener('input', (e) => { state.librarySearch = e.target.value; renderSongList(); });
