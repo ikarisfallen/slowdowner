@@ -134,7 +134,11 @@ function render() {
       <button class="btn rndbtn rwbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
       <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
       <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L)">${ICON_LOOP}</button>
+    </div>
+
+    <div class="transport2">
       <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,)">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.)">▶</button></span>
+      <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑 Marker</button>
     </div>
 
     <div class="transport2">
@@ -465,6 +469,7 @@ function applyEngineParams() {
 function updatePlayhead(pos) {
   wave.setState({ position: pos });
   $('#curTime').textContent = fmt(pos);
+  updateDeleteCurrentBtn();
 }
 function updateZoomReadout() {
   const z = wave ? wave.zoom : 1;
@@ -735,6 +740,25 @@ function jumpMarker(dir) {
   state.engine.seek(target);
   updatePlayhead(target);
 }
+// The marker nearest the playhead within a small tolerance (or null). Jumping
+// via prev/next lands exactly on a marker, so this enables the delete button.
+function markerAt(pos) {
+  const eps = 0.12;
+  let best = null, bd = eps;
+  for (const m of state.markers) { const d = Math.abs(m - pos); if (d <= bd) { bd = d; best = m; } }
+  return best;
+}
+function updateDeleteCurrentBtn() {
+  const b = $('#deleteCurrentMarker');
+  if (!b) return;
+  const pos = state.engine ? state.engine.getPosition() : 0;
+  b.disabled = markerAt(pos) == null;
+}
+function deleteCurrentMarker() {
+  const pos = state.engine ? state.engine.getPosition() : 0;
+  const m = markerAt(pos);
+  if (m != null) deleteMarker(m);
+}
 function deleteMarker(t) {
   state.markers = state.markers.filter((m) => m !== t);
   state.selectedMarkers.delete(t);
@@ -784,9 +808,10 @@ function renderMarkers() {
   const box = $('#markerlist');
   if (!box) return;
   if (!state.markers.length) {
-    box.innerHTML = `<div class="muted" style="font-size:13px">No markers. Play the song and tap <strong>＋ Marker</strong> (or press M) to drop one.</div>`;
+    box.innerHTML = `<div class="muted" style="font-size:13px">No markers. Play the song and tap <strong>＋</strong> (or press M) to drop one.</div>`;
     updateMarkerSelectionUI();
     clampMarkerLoop();
+    updateDeleteCurrentBtn();
     return;
   }
   box.innerHTML = '';
@@ -808,6 +833,7 @@ function renderMarkers() {
   });
   updateMarkerSelectionUI();
   clampMarkerLoop();
+  updateDeleteCurrentBtn();
 }
 
 // ---------- loop between markers ----------
@@ -1230,6 +1256,7 @@ function wireShell() {
   $('#addMarker').onclick = () => addMarker();
   $('#prevMarker').onclick = () => jumpMarker(-1);
   $('#nextMarker').onclick = () => jumpMarker(1);
+  $('#deleteCurrentMarker').onclick = () => deleteCurrentMarker();
   $('#markersToggle').onclick = () => toggleMarkersPanel();
   $('#markerSelectAll').onchange = (e) => toggleSelectAllMarkers(e.target.checked);
   $('#deleteSelectedMarkers').onclick = () => deleteSelectedMarkers();
