@@ -10,6 +10,9 @@ import { createSignalsmithEngine } from './signalsmith.js';
 export async function createMultiEngine(ctx, destination) {
   // tracks: { engine, gain, name, volume, muted }
   const tracks = [];
+  // Analysis tap: every stem feeds this at unity (pre volume/mute), so chord
+  // detection always sees the full mix regardless of what's muted.
+  let analyser = null;
 
   function first() {
     return tracks[0]?.engine || null;
@@ -18,6 +21,9 @@ export async function createMultiEngine(ctx, destination) {
   return {
     id: 'multi',
     tracks,
+    get analyser() {
+      return analyser;
+    },
     get outputNode() {
       return null; // each track routes to `destination` directly
     },
@@ -30,6 +36,9 @@ export async function createMultiEngine(ctx, destination) {
 
     // items: [{ buffer, name, volume }]
     async load(items) {
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 8192;
+      analyser.smoothingTimeConstant = 0.6;
       for (const it of items) {
         const engine = await createSignalsmithEngine(ctx);
         const gain = ctx.createGain();
@@ -37,6 +46,7 @@ export async function createMultiEngine(ctx, destination) {
         gain.gain.value = vol;
         engine.outputNode.connect(gain);
         gain.connect(destination);
+        engine.outputNode.connect(analyser); // unity, pre-mute — for chord detection
         await engine.load(it.buffer);
         tracks.push({ engine, gain, name: it.name, volume: vol, muted: false });
       }
@@ -85,6 +95,8 @@ export async function createMultiEngine(ctx, destination) {
         try { t.engine.dispose(); } catch {}
         try { t.gain.disconnect(); } catch {}
       }
+      try { analyser?.disconnect(); } catch {}
+      analyser = null;
       tracks.length = 0;
     },
   };

@@ -1,5 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
+import { createChordDetector } from './chords.js';
 import { Waveform, computePeaks } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
@@ -128,6 +129,8 @@ const state = {
   pitch: 0,
   volume: 1, // output gain multiplier (boost quiet stems)
   playing: false,
+  chordsOn: (() => { try { return localStorage.getItem('chordsOn') !== '0'; } catch { return true; } })(),
+  chordDetector: null,
 };
 
 let wave;
@@ -158,12 +161,13 @@ function render() {
 
   <div class="panel hidden" id="player">
     <h2 id="songTitle">—</h2>
-    <div class="wavewrap"><canvas class="wave" id="wave"></canvas><div class="waveloading hidden" id="waveLoading"><span class="spin">⟳</span> <span id="waveLoadingText">Loading…</span></div></div>
+    <div class="wavewrap"><canvas class="wave" id="wave"></canvas><div class="chordlabel hidden" id="chordOverlay"></div><div class="waveloading hidden" id="waveLoading"><span class="spin">⟳</span> <span id="waveLoadingText">Loading…</span></div></div>
     <div class="wavetools">
       <button class="btn" id="setA" title="Set loop start (A)">[</button>
       <button class="btn" id="setB" title="Set loop end (B)">]</button>
       <button class="btn ghost" id="clearLoop" title="Clear loop">✕</button>
       <button class="btn" id="saveLoop" title="Save section">＋ [ ]</button>
+      <button class="btn" id="chordToggle" title="Show the detected chord over the waveform">♪ Chords</button>
       <span style="flex:1"></span>
       <span class="mono muted" id="zoomLevel" title="Zoom level (1× = whole song)" style="font-size:13px; min-width:34px; text-align:right">1×</span>
       <button class="btn" id="zoomOut" title="Zoom out">−</button>
@@ -352,6 +356,7 @@ async function recoverAudio(reason) {
       state.engine = await buildEngine();
       await state.engine.load(state.tracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
       state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
+      state.chordDetector = state.engine.analyser ? createChordDetector(state.engine.analyser, ctx.sampleRate) : null;
       applyEngineParams();
       state.engine.seek(pos);
       updatePlayhead(pos);
@@ -493,6 +498,8 @@ async function loadSong(song, { autoplay = false } = {}) {
     return; // don't rethrow — avoid an uncaught rejection
   }
   renderTrackMix();
+  state.chordDetector = state.engine.analyser ? createChordDetector(state.engine.analyser, ctx.sampleRate) : null;
+  resetChordState();
 
   // loops
   state.loops = await db.getLoops(song.id);
@@ -548,10 +555,11 @@ function updateZoomReadout() {
 }
 
 let raf;
-function loop() {
+function loop(ts) {
   if (!state.engine) return;
   const pos = state.engine.getPosition();
   updatePlayhead(pos);
+  maybeDetectChord(ts || performance.now());
   if (!state.loopOn && state.buffer && pos >= state.buffer.duration - 0.02) {
     pausePlayback();
     state.engine.seek(0);
@@ -559,6 +567,45 @@ function loop() {
     return;
   }
   raf = requestAnimationFrame(loop);
+}
+
+// ---------- chord detection ----------
+// Detection runs on the RAF loop (throttled). A chord must persist a couple of
+// ticks before it's shown, and clear after a few empty ticks, so the label is
+// steady rather than flickering per frame.
+let lastChordAt = 0;
+let chordPending = null, chordPendCount = 0, chordShown = null, chordNullCount = 0;
+function resetChordState() {
+  chordPending = null; chordPendCount = 0; chordShown = null; chordNullCount = 0;
+  setChordOverlay(null);
+}
+function setChordOverlay(label) {
+  const o = $('#chordOverlay');
+  if (!o) return;
+  if (state.chordsOn && label) { o.textContent = label; o.classList.remove('hidden'); }
+  else { o.textContent = ''; o.classList.add('hidden'); }
+}
+function maybeDetectChord(now) {
+  if (!state.chordsOn || !state.chordDetector) return;
+  if (now - lastChordAt < 120) return; // ~8 detections/sec
+  lastChordAt = now;
+  const c = state.chordDetector.detect();
+  const lab = c ? c.label : null;
+  if (lab) {
+    chordNullCount = 0;
+    if (lab === chordShown) { chordPending = null; chordPendCount = 0; return; }
+    if (lab === chordPending) chordPendCount++; else { chordPending = lab; chordPendCount = 1; }
+    if (chordPendCount >= 2) { chordShown = lab; setChordOverlay(lab); chordPending = null; chordPendCount = 0; }
+  } else {
+    chordPending = null; chordPendCount = 0;
+    if (chordShown != null) { chordNullCount++; if (chordNullCount >= 3) { chordShown = null; setChordOverlay(null); } }
+  }
+}
+function toggleChords(force) {
+  state.chordsOn = force != null ? force : !state.chordsOn;
+  try { localStorage.setItem('chordsOn', state.chordsOn ? '1' : '0'); } catch {}
+  $('#chordToggle')?.classList.toggle('on', state.chordsOn);
+  if (!state.chordsOn) resetChordState();
 }
 
 async function togglePlay() {
@@ -601,6 +648,7 @@ function pausePlayback() {
   releaseWakeLock();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
+  resetChordState(); // no signal while paused — clear the chord label
 }
 function stopPlayback() {
   if (state.playing) pausePlayback();
@@ -1524,6 +1572,8 @@ function wireShell() {
   $('#zoomIn').onclick = () => { wave.zoomBy(2); updateZoomReadout(); };
   $('#zoomOut').onclick = () => { wave.zoomBy(0.5); updateZoomReadout(); };
   $('#zoomFit').onclick = () => { wave.fit(); updateZoomReadout(); };
+  $('#chordToggle').onclick = () => toggleChords();
+  $('#chordToggle').classList.toggle('on', state.chordsOn);
   $('#loopToggle').onclick = () => toggleLoop();
   $('#setA').onclick = () => setLoopPoint('A');
   $('#setB').onclick = () => setLoopPoint('B');
