@@ -1153,6 +1153,15 @@ async function scanDriveFolder() {
   for (const g of groups.values()) {
     if (g.multi && g.files.length > 1) {
       g.files.sort((a, b) => stemRank(a.stem) - stemRank(b.stem));
+      // Absorb any single-track songs previously created from these stem files
+      // (e.g. by an older app version that didn't group stems) so they don't
+      // linger as duplicates alongside the grouped song.
+      for (const { f } of g.files) {
+        const dup = await db.getSongByDriveId(f.id);
+        if (dup && (!dup.tracks || !dup.tracks.length) && state.song?.id !== dup.id) {
+          await db.deleteSong(dup.id);
+        }
+      }
       let song = (await db.getSongByDriveBase(g.base)) || (await db.getSongs()).find((s) => s.tracks && s.name === g.base);
       if (!song) {
         const now = Date.now();
