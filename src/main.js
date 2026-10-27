@@ -576,17 +576,25 @@ function loop(ts) {
 let chordToken = 0;
 async function analyzeChords(song) {
   const myToken = ++chordToken;
+  // Roots come only from a separate bass stem; rhythm (beat grid) from no_bass.
+  const bass = state.tracks.find((t) => /bass/.test(t.stem || '') && !/^no_/.test(t.stem || ''));
+  const btn = $('#chordToggle');
+  if (btn) {
+    btn.disabled = !bass; // grey out when there's no bass track to read roots from
+    btn.title = bass ? 'Show the detected root notes over the waveform' : 'Needs a separate bass stem';
+  }
+  if (!bass) { state.chordEvents = []; wave.setState({ chords: [] }); return; }
+
   if (song.chords && song.chords.length && song.chordsVer === CHORDS_VERSION) {
     state.chordEvents = song.chords;
     if (state.chordsOn) wave.setState({ chords: state.chordEvents });
     return;
   }
-  // The bass stem (when present) fixes the chord root; the harmony/quality comes
-  // from the full mix. Done inside makeChordAnalysis.
-  const bass = state.tracks.find((t) => /bass/.test(t.stem || '') && !/^no_/.test(t.stem || ''));
-  const an = makeChordAnalysis(state.buffer, { bassBuffer: bass ? bass.buffer : null });
+  const nobass = state.tracks.find((t) => /^no_?bass/.test(t.stem || ''));
+  const rhythmBuf = nobass ? nobass.buffer : bass.buffer; // no_bass for rhythm; bass as fallback
+  const an = makeChordAnalysis(rhythmBuf, { bassBuffer: bass.buffer });
   while (true) {
-    const done = an.step(50);
+    const done = an.step(80);
     if (myToken !== chordToken) return; // another song loaded — abandon this run
     state.chordEvents = an.events();
     if (state.chordsOn) wave.setState({ chords: state.chordEvents });

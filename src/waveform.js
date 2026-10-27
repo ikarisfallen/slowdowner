@@ -232,10 +232,9 @@ export class Waveform {
       c.fill();
     }
 
-    // chord labels at each detection time. Size scales with zoom — small when
-    // zoomed out so many fit, larger as you zoom in. Packed across a few stacked
-    // rows so a label drops only if it won't fit any row. A shadow keeps them
-    // legible over the waveform.
+    // Root-note guideposts (one per bar, on the downbeat). Size scales with zoom
+    // — small when zoomed out so many fit, larger as you zoom in. Packed across a
+    // few stacked rows; a shadow keeps them legible over the waveform.
     if (this.chords && this.chords.length) {
       const fs = Math.max(9, Math.min(24, Math.round(9 + 3.2 * Math.log2(this.zoom))));
       c.font = `${fs}px system-ui, -apple-system, sans-serif`;

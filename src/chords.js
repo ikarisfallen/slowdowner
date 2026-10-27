@@ -1,59 +1,15 @@
-// Offline triad detection over a whole buffer.
+// Beat-grid root detection.
 //
-// Instead of listening in real time, this analyzes the decoded audio up front:
-// it slides a window across the (mono, decimated) signal, FFTs each window,
-// folds the spectrum into a 12-note chroma, and template-matches the 36 triads
-// (maj/min/dim). A chord is accepted only when it's strong, unambiguous, and
-// persists across a couple of windows; the result is a list of chord-change
-// events for the whole song. It's a best-effort hint for comparing to a lead
-// sheet — triads only, intentionally blank on dense/unclear passages.
+// Simple by design: find the beat grid from the *rhythm* (the no_bass stem's
+// onsets), group beats into bars of four, and read the **root note only** from
+// the *bass* stem on the **downbeat (the 1) of each bar** — no chord quality,
+// just one letter per bar as a guidepost. Needs a bass stem; with none, the
+// caller shows nothing and greys the toggle.
 
-// Flats read more naturally than sharps in most jazz (Bb, Eb, Ab…).
 const NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
-// Major and minor only — simpler and far fewer misfires than trying to also
-// catch diminished/augmented from a rough chroma.
-const QUALITIES = { maj: [0, 4, 7], min: [0, 3, 7] };
-const SUFFIX = { maj: '', min: 'm' };
 
-// Bump when the labelling scheme or algorithm changes so cached chord tracks
-// (db.setSongChords) are recomputed instead of shown stale.
-export const CHORDS_VERSION = 5;
-
-const TEMPLATES = [];
-for (let root = 0; root < 12; root++) {
-  for (const q of Object.keys(QUALITIES)) {
-    TEMPLATES.push({ offs: QUALITIES[q], norm: Math.sqrt(QUALITIES[q].length), label: NAMES[root] + SUFFIX[q], root });
-    TEMPLATES[TEMPLATES.length - 1].abs = QUALITIES[q].map((o) => (root + o) % 12);
-  }
-}
-
-// Best triad (major/minor) for a chroma vector, or null when weak/ambiguous.
-// forceRoot (>=0): trust the bass — only consider triads rooted there, so the
-// harmony just picks major vs minor. This is the "emphasize the bass" path; it
-// falls back to a full search when the bass root is unclear.
-function matchChord(chroma, forceRoot) {
-  let ss = 0;
-  for (let i = 0; i < 12; i++) ss += chroma[i] * chroma[i];
-  const cn = Math.sqrt(ss);
-  if (cn <= 0) return null;
-  const unit = new Float64Array(12);
-  for (let i = 0; i < 12; i++) unit[i] = chroma[i] / cn;
-
-  let best = null, bestScore = -1, second = -1;
-  for (const t of TEMPLATES) {
-    if (forceRoot >= 0 && t.root !== forceRoot) continue;
-    let dot = 0;
-    for (const pc of t.abs) dot += unit[pc];
-    const score = dot / t.norm; // cosine similarity in [0,1]
-    if (score > bestScore) { second = bestScore; bestScore = score; best = t; }
-    else if (score > second) { second = score; }
-  }
-  // When the root is fixed by the bass we can trust a slightly weaker match
-  // (we're only choosing the quality); otherwise require a stronger one.
-  if (bestScore < (forceRoot >= 0 ? 0.42 : 0.5)) return null;
-  if (bestScore - second < 0.02) return null;
-  return best.label;
-}
+// Bump when the scheme/algorithm changes so cached tracks (db.setSongChords) recompute.
+export const CHORDS_VERSION = 7;
 
 // In-place iterative radix-2 FFT. re/im are Float32Array of length n (power of 2).
 function fft(re, im) {
@@ -84,52 +40,20 @@ function fft(re, im) {
   }
 }
 
-// Collapse a per-window list of labels into chord-change events. First a mode
-// filter (±R windows) removes single-window blips and fills single-window gaps,
-// which steadies the result; then a label must hold >= 2 consecutive (filtered)
-// windows to count, and only a *change* emits an event, so a held chord appears
-// once at its onset.
-function smoothEvents(raw, count) {
-  if (!count) return [];
-  const R = 2;
-  const filt = new Array(count);
-  for (let k = 0; k < count; k++) {
-    const tally = new Map();
-    for (let j = Math.max(0, k - R); j <= Math.min(count - 1, k + R); j++) {
-      const l = raw[j] ? raw[j].label : null;
-      const key = l == null ? '\u0000' : l;
-      tally.set(key, (tally.get(key) || 0) + 1);
-    }
-    let bestKey = '\u0000', bestN = -1;
-    for (const [key, n] of tally) if (n > bestN) { bestN = n; bestKey = key; }
-    filt[k] = bestKey === '\u0000' ? null : bestKey;
-  }
-
-  const events = [];
-  let shown = null, runLabel = null, runStart = 0, runLen = 0;
-  for (let k = 0; k < count; k++) {
-    const lab = filt[k];
-    const t = raw[k] ? raw[k].t : 0;
-    if (lab === runLabel) runLen++;
-    else { runLabel = lab; runStart = t; runLen = 1; }
-    if (runLabel && runLen === 2 && runLabel !== shown) {
-      shown = runLabel;
-      events.push({ t: Math.max(0, runStart), label: runLabel });
-    }
-  }
-  return events;
+function hann(n) {
+  const w = new Float32Array(n);
+  for (let i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1));
+  return w;
 }
 
-// Build an incremental analyzer so the work can be spread across frames (the
-// song stays playable while labels fill in). Call step(budget) until it returns
-// true; read events() any time for the labels found so far.
-export function makeChordAnalysis(audioBuffer, { bassBuffer = null, targetSr = 11025, fftSize = 2048, hop = 0.12 } = {}) {
-  const sr = audioBuffer.sampleRate;
+// Incremental analyzer: step(budget) computes the onset envelope in chunks (the
+// heavy part); when the envelope is done it finalizes the beat grid + roots.
+// events() returns [] until finalized, then the beat-placed root notes.
+export function makeChordAnalysis(rhythmBuffer, { bassBuffer = null, targetSr = 11025 } = {}) {
+  const sr = rhythmBuffer.sampleRate;
   const dec = Math.max(1, Math.round(sr / targetSr));
   const asr = sr / dec;
 
-  // Downmix + decimate (box-average) to ~targetSr — chords live well below
-  // ~2 kHz, so this is plenty and keeps the FFTs cheap.
   function toMono(buf) {
     const chs = buf.numberOfChannels;
     const chans = [];
@@ -143,66 +67,113 @@ export function makeChordAnalysis(audioBuffer, { bassBuffer = null, targetSr = 1
     }
     return out;
   }
-  const mono = toMono(audioBuffer);
+  const rhythm = toMono(rhythmBuffer);
   const bass = bassBuffer ? toMono(bassBuffer) : null;
-  const mlen = mono.length;
 
-  const half = fftSize >> 1;
-  // Pitch class per bin for the harmony range, and a low range for the bass root.
-  const binPc = new Int8Array(half).fill(-1);
-  const bassPc = new Int8Array(half).fill(-1);
-  for (let k = 1; k < half; k++) {
-    const f = (k * asr) / fftSize;
-    const pc = (((Math.round(69 + 12 * Math.log2(f / 440)) % 12) + 12) % 12);
-    if (f >= 55 && f <= 1760) binPc[k] = pc;
-    if (f >= 40 && f <= 350) bassPc[k] = pc; // bass fundamentals
+  // --- onset envelope (spectral flux) ---
+  const oFft = 1024, oHop = 128, oHalf = oFft >> 1;
+  const frameRate = asr / oHop;
+  const owin = hann(oFft);
+  const nFrames = Math.max(0, Math.floor((rhythm.length - oFft) / oHop) + 1);
+  const flux = new Float32Array(nFrames);
+  const re = new Float32Array(oFft), im = new Float32Array(oFft);
+  const prevMag = new Float32Array(oHalf);
+  let fi = 0;
+
+  // --- bass root (bigger window for low-freq resolution) ---
+  const bFft = 2048, bHalf = bFft >> 1;
+  const bwin = hann(bFft);
+  const bre = new Float32Array(bFft), bim = new Float32Array(bFft);
+  const bassPc = new Int8Array(bHalf).fill(-1);
+  for (let k = 1; k < bHalf; k++) {
+    const f = (k * asr) / bFft;
+    if (f >= 40 && f <= 350) bassPc[k] = (((Math.round(69 + 12 * Math.log2(f / 440)) % 12) + 12) % 12);
   }
-  const win = new Float32Array(fftSize);
-  for (let i = 0; i < fftSize; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (fftSize - 1));
-
-  const hopSamp = Math.max(1, Math.floor(hop * asr));
-  const starts = [];
-  for (let s = 0; s + fftSize <= mlen; s += hopSamp) starts.push(s);
-
-  const re = new Float32Array(fftSize);
-  const im = new Float32Array(fftSize);
-  const raw = new Array(starts.length);
-  let idx = 0;
-
-  const harmC = new Float64Array(12);
-  const bassC = new Float64Array(12);
-
-  // FFT one window of `src` and accumulate a chroma via `pcMap`; returns total energy.
-  function windowChroma(src, start, pcMap, out) {
-    for (let i = 0; i < fftSize; i++) { const j = start + i; re[i] = (j < src.length ? src[j] : 0) * win[i]; im[i] = 0; }
-    fft(re, im);
-    out.fill(0);
+  function bassRootAt(t) {
+    const start = Math.max(0, Math.round(t * asr) - (bFft >> 1));
+    for (let i = 0; i < bFft; i++) { const j = start + i; bre[i] = (j < bass.length ? bass[j] : 0) * bwin[i]; bim[i] = 0; }
+    fft(bre, bim);
+    const bc = new Float64Array(12);
     let total = 0;
-    for (let k = 1; k < half; k++) { const pc = pcMap[k]; if (pc < 0) continue; const mag = Math.hypot(re[k], im[k]); out[pc] += mag; total += mag; }
-    return total;
+    for (let k = 1; k < bHalf; k++) { const pc = bassPc[k]; if (pc < 0) continue; const m = Math.hypot(bre[k], bim[k]); bc[pc] += m; total += m; }
+    if (total < 1e-4) return -1;
+    let m1 = 0, m2 = 0, arg = -1;
+    for (let p = 0; p < 12; p++) { if (bc[p] > m1) { m2 = m1; m1 = bc[p]; arg = p; } else if (bc[p] > m2) m2 = bc[p]; }
+    return m1 > 1.4 * m2 ? arg : -1; // clearly dominant bass note
+  }
+
+  let events = [];
+  let finalized = false;
+
+  function finalize() {
+    finalized = true;
+    if (!bass || nFrames < 16) { events = []; return; }
+
+    // Tempo: autocorrelate the onset envelope, with a soft preference around
+    // 120 BPM to steer away from half/double-time octave errors.
+    const minLag = Math.max(2, Math.round((60 * frameRate) / 200));
+    const maxLag = Math.min(nFrames - 1, Math.round((60 * frameRate) / 60));
+    let bestLag = minLag, bestScore = -1;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let ac = 0;
+      for (let f = 0; f + lag < nFrames; f++) ac += flux[f] * flux[f + lag];
+      const bpm = (60 * frameRate) / lag;
+      const lg = Math.log2(bpm / 120);
+      ac *= Math.exp(-0.5 * (lg / 0.7) * (lg / 0.7));
+      if (ac > bestScore) { bestScore = ac; bestLag = lag; }
+    }
+    if (bestScore <= 0) { events = []; return; }
+
+    // Beat phase: the offset whose pulse train best lines up with onsets.
+    let bestPhase = 0, bestPSum = -1;
+    for (let p = 0; p < bestLag; p++) {
+      let s = 0;
+      for (let f = p; f < nFrames; f += bestLag) s += flux[f];
+      if (s > bestPSum) { bestPSum = s; bestPhase = p; }
+    }
+    const beatFrames = [];
+    for (let f = bestPhase; f < nFrames; f += bestLag) beatFrames.push(f);
+    if (beatFrames.length < 2) { events = []; return; }
+
+    // Downbeat (bar of 4): the beat offset carrying the most onset energy.
+    let bestB = 0, bestBSum = -1;
+    for (let b = 0; b < 4; b++) {
+      let s = 0;
+      for (let i = b; i < beatFrames.length; i += 4) s += flux[beatFrames[i]];
+      if (s > bestBSum) { bestBSum = s; bestB = b; }
+    }
+
+    // Root note from the bass on the downbeat (the 1) of each bar only.
+    events = [];
+    for (let i = 0; i < beatFrames.length; i++) {
+      if (((i - bestB) % 4 + 4) % 4 !== 0) continue; // beat 1 only
+      const t = beatFrames[i] / frameRate;
+      const root = bassRootAt(t);
+      if (root < 0) continue;
+      events.push({ t, label: NAMES[root] });
+    }
   }
 
   return {
-    total: starts.length,
+    total: nFrames,
     step(budget) {
-      const end = Math.min(idx + budget, starts.length);
-      for (; idx < end; idx++) {
-        const start = starts[idx];
-        const harmTotal = windowChroma(mono, start, binPc, harmC);
-        // The bass stem fixes the root: take its dominant low pitch class when
-        // one clearly stands out, and let the harmony only pick the quality.
-        let forceRoot = -1;
-        if (bass) {
-          windowChroma(bass, start, bassPc, bassC);
-          let m1 = 0, m2 = 0, arg = -1;
-          for (let p = 0; p < 12; p++) { if (bassC[p] > m1) { m2 = m1; m1 = bassC[p]; arg = p; } else if (bassC[p] > m2) m2 = bassC[p]; }
-          forceRoot = m1 > 0 && m1 > 1.5 * m2 ? arg : -1;
+      const end = Math.min(fi + budget, nFrames);
+      for (; fi < end; fi++) {
+        const start = fi * oHop;
+        for (let i = 0; i < oFft; i++) { re[i] = rhythm[start + i] * owin[i]; im[i] = 0; }
+        fft(re, im);
+        let fl = 0;
+        for (let k = 1; k < oHalf; k++) {
+          const m = Math.hypot(re[k], im[k]);
+          const d = m - prevMag[k];
+          if (d > 0) fl += d;
+          prevMag[k] = m;
         }
-        const t = (start + fftSize / 2) / asr;
-        raw[idx] = { t, label: harmTotal < 1e-3 ? null : matchChord(harmC, forceRoot) };
+        flux[fi] = fl;
       }
-      return idx >= starts.length;
+      if (fi >= nFrames && !finalized) finalize();
+      return fi >= nFrames;
     },
-    events() { return smoothEvents(raw, idx); },
+    events() { return events; },
   };
 }
