@@ -1,15 +1,15 @@
 // Beat-grid root detection.
 //
 // Simple by design: find the beat grid from the *rhythm* (the no_bass stem's
-// onsets), group beats into bars of four, and read the **root note only** from
-// the *bass* stem on the **downbeat (the 1) of each bar** — no chord quality,
-// just one letter per bar as a guidepost. Needs a bass stem; with none, the
+// onsets), then walk a subdivided (eighth-note) grid and read the **root note
+// only** from the *bass* stem, dropping a letter wherever the bass root changes
+// — no chord quality, just root guideposts. Needs a bass stem; with none, the
 // caller shows nothing and greys the toggle.
 
 const NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 
 // Bump when the scheme/algorithm changes so cached tracks (db.setSongChords) recompute.
-export const CHORDS_VERSION = 7;
+export const CHORDS_VERSION = 8;
 
 // In-place iterative radix-2 FFT. re/im are Float32Array of length n (power of 2).
 function fft(re, im) {
@@ -131,26 +131,22 @@ export function makeChordAnalysis(rhythmBuffer, { bassBuffer = null, targetSr = 
       for (let f = p; f < nFrames; f += bestLag) s += flux[f];
       if (s > bestPSum) { bestPSum = s; bestPhase = p; }
     }
-    const beatFrames = [];
-    for (let f = bestPhase; f < nFrames; f += bestLag) beatFrames.push(f);
-    if (beatFrames.length < 2) { events = []; return; }
 
-    // Downbeat (bar of 4): the beat offset carrying the most onset energy.
-    let bestB = 0, bestBSum = -1;
-    for (let b = 0; b < 4; b++) {
-      let s = 0;
-      for (let i = b; i < beatFrames.length; i += 4) s += flux[beatFrames[i]];
-      if (s > bestBSum) { bestBSum = s; bestB = b; }
-    }
-
-    // Root note from the bass on the downbeat (the 1) of each bar only.
+    // Walk a subdivided grid (eighth notes) and drop a root wherever the bass
+    // note changes — denser than one-per-bar, catches mid-bar/walking-bass roots,
+    // and avoids repeating the same letter while a root is held.
+    const SUBDIV = 2;
+    const stepF = bestLag / SUBDIV;
+    if (stepF < 1) { events = []; return; }
     events = [];
-    for (let i = 0; i < beatFrames.length; i++) {
-      if (((i - bestB) % 4 + 4) % 4 !== 0) continue; // beat 1 only
-      const t = beatFrames[i] / frameRate;
+    let prevRoot = -1;
+    for (let p = bestPhase; p < nFrames; p += stepF) {
+      const t = p / frameRate;
       const root = bassRootAt(t);
-      if (root < 0) continue;
+      if (root < 0) continue;        // unclear — hold the current guide
+      if (root === prevRoot) continue; // same root — no new label
       events.push({ t, label: NAMES[root] });
+      prevRoot = root;
     }
   }
 
