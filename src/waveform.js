@@ -235,7 +235,7 @@ export class Waveform {
     // chord labels — tiny text at the top, at each detection time. Dense when
     // zoomed out (overlaps are thinned by pixel spacing), readable when zoomed in.
     if (this.chords && this.chords.length) {
-      c.font = '9px system-ui, -apple-system, sans-serif';
+      c.font = '18px system-ui, -apple-system, sans-serif';
       c.textBaseline = 'top';
       c.fillStyle = '#cdd3df';
       let lastRight = -Infinity;

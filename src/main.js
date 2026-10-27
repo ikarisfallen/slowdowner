@@ -1,6 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { makeChordAnalysis } from './chords.js';
+import { makeChordAnalysis, CHORDS_VERSION } from './chords.js';
 import { Waveform, computePeaks } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
@@ -576,7 +576,7 @@ function loop(ts) {
 let chordToken = 0;
 async function analyzeChords(song) {
   const myToken = ++chordToken;
-  if (song.chords && song.chords.length) {
+  if (song.chords && song.chords.length && song.chordsVer === CHORDS_VERSION) {
     state.chordEvents = song.chords;
     if (state.chordsOn) wave.setState({ chords: state.chordEvents });
     return;
@@ -591,7 +591,7 @@ async function analyzeChords(song) {
     if (done) break;
     await new Promise((r) => setTimeout(r, 0)); // yield so the song keeps playing
   }
-  db.setSongChords(song.id, state.chordEvents);
+  db.setSongChords(song.id, state.chordEvents, CHORDS_VERSION);
 }
 function toggleChords(force) {
   state.chordsOn = force != null ? force : !state.chordsOn;

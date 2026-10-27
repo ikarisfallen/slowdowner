@@ -8,9 +8,14 @@
 // events for the whole song. It's a best-effort hint for comparing to a lead
 // sheet — triads only, intentionally blank on dense/unclear passages.
 
-const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+// Flats read more naturally than sharps in most jazz (Bb, Eb, Ab…).
+const NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 const QUALITIES = { maj: [0, 4, 7], min: [0, 3, 7], dim: [0, 3, 6] };
 const SUFFIX = { maj: '', min: 'm', dim: '°' };
+
+// Bump when the labelling scheme or algorithm changes so cached chord tracks
+// (db.setSongChords) are recomputed instead of shown stale.
+export const CHORDS_VERSION = 2;
 
 const TEMPLATES = [];
 for (let root = 0; root < 12; root++) {

@@ -99,11 +99,12 @@ export function getSongByDriveBase(base) {
 
 // Cache the detected chord track for a song (local only — not synced; recomputed
 // per device). No updatedAt bump: it's derived data, not a user edit.
-export function setSongChords(id, chords) {
+export function setSongChords(id, chords, version) {
   return tx('songs', 'readwrite', async (s) => {
     const song = await reqP(s.get(id));
     if (!song) return;
     song.chords = chords;
+    song.chordsVer = version;
     s.put(song);
   });
 }
