@@ -581,6 +581,8 @@ async function analyzeChords(song) {
     if (state.chordsOn) wave.setState({ chords: state.chordEvents });
     return;
   }
+  // The bass stem (when present) fixes the chord root; the harmony/quality comes
+  // from the full mix. Done inside makeChordAnalysis.
   const bass = state.tracks.find((t) => /bass/.test(t.stem || '') && !/^no_/.test(t.stem || ''));
   const an = makeChordAnalysis(state.buffer, { bassBuffer: bass ? bass.buffer : null });
   while (true) {

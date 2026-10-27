@@ -10,12 +10,14 @@
 
 // Flats read more naturally than sharps in most jazz (Bb, Eb, Ab…).
 const NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
-const QUALITIES = { maj: [0, 4, 7], min: [0, 3, 7], dim: [0, 3, 6] };
-const SUFFIX = { maj: '', min: 'm', dim: '°' };
+// Major and minor only — simpler and far fewer misfires than trying to also
+// catch diminished/augmented from a rough chroma.
+const QUALITIES = { maj: [0, 4, 7], min: [0, 3, 7] };
+const SUFFIX = { maj: '', min: 'm' };
 
 // Bump when the labelling scheme or algorithm changes so cached chord tracks
 // (db.setSongChords) are recomputed instead of shown stale.
-export const CHORDS_VERSION = 3;
+export const CHORDS_VERSION = 5;
 
 const TEMPLATES = [];
 for (let root = 0; root < 12; root++) {
@@ -25,11 +27,11 @@ for (let root = 0; root < 12; root++) {
   }
 }
 
-// Best triad for a chroma vector, or null when weak/ambiguous. `rootHint` is the
-// bass note's pitch class (or -1): triads rooted there get a small bonus, since
-// the bass usually lands on the root — this mainly fixes root ambiguities (e.g.
-// a chord vs. its relative minor) without forcing it when the bass walks off.
-function matchChord(chroma, rootHint) {
+// Best triad (major/minor) for a chroma vector, or null when weak/ambiguous.
+// forceRoot (>=0): trust the bass — only consider triads rooted there, so the
+// harmony just picks major vs minor. This is the "emphasize the bass" path; it
+// falls back to a full search when the bass root is unclear.
+function matchChord(chroma, forceRoot) {
   let ss = 0;
   for (let i = 0; i < 12; i++) ss += chroma[i] * chroma[i];
   const cn = Math.sqrt(ss);
@@ -39,14 +41,16 @@ function matchChord(chroma, rootHint) {
 
   let best = null, bestScore = -1, second = -1;
   for (const t of TEMPLATES) {
+    if (forceRoot >= 0 && t.root !== forceRoot) continue;
     let dot = 0;
     for (const pc of t.abs) dot += unit[pc];
-    let score = dot / t.norm; // cosine similarity in [0,1]
-    if (rootHint >= 0 && t.root === rootHint) score += 0.08;
+    const score = dot / t.norm; // cosine similarity in [0,1]
     if (score > bestScore) { second = bestScore; bestScore = score; best = t; }
     else if (score > second) { second = score; }
   }
-  if (bestScore < 0.5) return null;
+  // When the root is fixed by the bass we can trust a slightly weaker match
+  // (we're only choosing the quality); otherwise require a stronger one.
+  if (bestScore < (forceRoot >= 0 ? 0.42 : 0.5)) return null;
   if (bestScore - second < 0.02) return null;
   return best.label;
 }
@@ -165,15 +169,17 @@ export function makeChordAnalysis(audioBuffer, { bassBuffer = null, targetSr = 1
   const raw = new Array(starts.length);
   let idx = 0;
 
-  // Dominant bass pitch class for a window, or -1 if none clearly stands out.
-  function bassRoot(start) {
-    for (let i = 0; i < fftSize; i++) { re[i] = (start + i < bass.length ? bass[start + i] : 0) * win[i]; im[i] = 0; }
+  const harmC = new Float64Array(12);
+  const bassC = new Float64Array(12);
+
+  // FFT one window of `src` and accumulate a chroma via `pcMap`; returns total energy.
+  function windowChroma(src, start, pcMap, out) {
+    for (let i = 0; i < fftSize; i++) { const j = start + i; re[i] = (j < src.length ? src[j] : 0) * win[i]; im[i] = 0; }
     fft(re, im);
-    const bc = new Float64Array(12);
-    for (let k = 1; k < half; k++) { const pc = bassPc[k]; if (pc < 0) continue; bc[pc] += Math.hypot(re[k], im[k]); }
-    let m1 = 0, m2 = 0, arg = -1;
-    for (let p = 0; p < 12; p++) { if (bc[p] > m1) { m2 = m1; m1 = bc[p]; arg = p; } else if (bc[p] > m2) m2 = bc[p]; }
-    return m1 > 0 && m1 > 1.6 * m2 ? arg : -1; // clearly dominant
+    out.fill(0);
+    let total = 0;
+    for (let k = 1; k < half; k++) { const pc = pcMap[k]; if (pc < 0) continue; const mag = Math.hypot(re[k], im[k]); out[pc] += mag; total += mag; }
+    return total;
   }
 
   return {
@@ -182,19 +188,18 @@ export function makeChordAnalysis(audioBuffer, { bassBuffer = null, targetSr = 1
       const end = Math.min(idx + budget, starts.length);
       for (; idx < end; idx++) {
         const start = starts[idx];
-        const rootHint = bass ? bassRoot(start) : -1;
-        for (let i = 0; i < fftSize; i++) { re[i] = mono[start + i] * win[i]; im[i] = 0; }
-        fft(re, im);
-        const chroma = new Float64Array(12);
-        let total = 0;
-        for (let k = 1; k < half; k++) {
-          const pc = binPc[k];
-          if (pc < 0) continue;
-          const mag = Math.hypot(re[k], im[k]);
-          chroma[pc] += mag; total += mag;
+        const harmTotal = windowChroma(mono, start, binPc, harmC);
+        // The bass stem fixes the root: take its dominant low pitch class when
+        // one clearly stands out, and let the harmony only pick the quality.
+        let forceRoot = -1;
+        if (bass) {
+          windowChroma(bass, start, bassPc, bassC);
+          let m1 = 0, m2 = 0, arg = -1;
+          for (let p = 0; p < 12; p++) { if (bassC[p] > m1) { m2 = m1; m1 = bassC[p]; arg = p; } else if (bassC[p] > m2) m2 = bassC[p]; }
+          forceRoot = m1 > 0 && m1 > 1.5 * m2 ? arg : -1;
         }
         const t = (start + fftSize / 2) / asr;
-        raw[idx] = { t, label: total < 1e-3 ? null : matchChord(chroma, rootHint) };
+        raw[idx] = { t, label: harmTotal < 1e-3 ? null : matchChord(harmC, forceRoot) };
       }
       return idx >= starts.length;
     },
