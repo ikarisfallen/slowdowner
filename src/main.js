@@ -1,8 +1,50 @@
 import './styles.css';
-import { createSignalsmithEngine } from './engines/signalsmith.js';
+import { createMultiEngine } from './engines/multi.js';
 import { Waveform, computePeaks } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
+
+// lalal.ai names its stems "<song>_<stem>_split_by_lalalai.mp3" (e.g. _bass /
+// _no_bass). Files sharing a base name are grouped into one multi-track song.
+const LALALAI_RE = /^(.*?)_([a-z]+(?:_[a-z]+)*)_split_by_lalalai$/i;
+function parseLalalai(filename) {
+  const base = filename.replace(/\.[^.]+$/, '');
+  const m = base.match(LALALAI_RE);
+  if (!m) return { base, stem: null };
+  return { base: m[1], stem: m[2].toLowerCase() };
+}
+function prettyStem(stem) {
+  if (!stem) return 'Track';
+  return stem.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+}
+// Order stems so the backing/minus-one track (e.g. "no_bass") comes first.
+function stemRank(stem) {
+  if (!stem) return 50;
+  if (/^no_/.test(stem)) return 0;
+  if (/instrumental|accompaniment|backing|music/.test(stem)) return 1;
+  return 10;
+}
+// Normalize a song to a tracks array; single-track (legacy blob) songs wrap as one.
+function songTracks(song) {
+  if (song.tracks && song.tracks.length) return song.tracks;
+  return [{ id: 'main', name: song.name, blob: song.blob, driveFileId: song.driveFileId, volume: 1 }];
+}
+// Sum stems into one buffer for the waveform display (stems sum to the full mix).
+function mixBuffers(ctx, buffers) {
+  if (buffers.length === 1) return buffers[0];
+  const sr = buffers[0].sampleRate;
+  const len = Math.max(...buffers.map((b) => b.length));
+  const chs = Math.max(...buffers.map((b) => b.numberOfChannels));
+  const out = ctx.createBuffer(chs, len, sr);
+  for (let c = 0; c < chs; c++) {
+    const o = out.getChannelData(c);
+    for (const b of buffers) {
+      const src = b.getChannelData(Math.min(c, b.numberOfChannels - 1));
+      for (let i = 0; i < src.length; i++) o[i] += src[i];
+    }
+  }
+  return out;
+}
 
 // ---------- icons ----------
 const ICON_PLAY = `<svg class="ic-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.4086 9.35258C23.5305 10.5065 23.5305 13.4935 21.4086 14.6474L8.59662 21.6145C6.53435 22.736 4 21.2763 4 18.9671L4 5.0329C4 2.72368 6.53435 1.26402 8.59661 2.38548L21.4086 9.35258Z"/></svg>`;
@@ -65,7 +107,8 @@ const state = {
   gain: null,
   engine: null,
   song: null,
-  buffer: null,
+  buffer: null, // the summed-mix buffer (duration/peaks/bounds only)
+  tracks: [], // loaded stems: { id, name, buffer, volume, muted }
   peaks: null,
   loops: [],
   selectedSections: new Set(),
@@ -148,6 +191,8 @@ function render() {
         ${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option value="${n}">${n}</option>`).join('')}
       </select>
     </div>
+
+    <div id="trackMix" class="trackmix hidden"></div>
 
     <div class="control" style="margin-top:2px">
       <button class="disclosure" id="markersToggle"><span id="markersChev">▸</span> <span id="markersToggleLabel">Show markers (0)</span></button>
@@ -303,9 +348,10 @@ async function recoverAudio(reason) {
     const ctx = ensureAudio();
     try { await ctx.resume(); } catch {}
     if (ctx.state !== 'running') throw new Error('context not running after resume');
-    if (state.buffer) {
+    if (state.tracks.length) {
       state.engine = await buildEngine();
-      await state.engine.load(state.buffer);
+      await state.engine.load(state.tracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
+      state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
       applyEngineParams();
       state.engine.seek(pos);
       updatePlayhead(pos);
@@ -360,9 +406,8 @@ function hideAudioFailBanner() {
 
 async function buildEngine() {
   const ctx = ensureAudio();
-  const engine = await createSignalsmithEngine(ctx);
-  engine.outputNode.connect(state.gain);
-  return engine;
+  // Each stem routes through its own gain into the shared master (state.gain).
+  return await createMultiEngine(ctx, state.gain);
 }
 
 // ---------- song loading ----------
@@ -387,20 +432,40 @@ async function loadSong(song, { autoplay = false } = {}) {
   $('#songTitle').textContent = song.name;
   showWaveLoading(song.blob ? `Loading “${song.name}”…` : `Downloading “${song.name}”…`);
 
-  let blob = song.blob;
-  if (!blob) {
-    try { blob = await ensureBlob(song); } catch (e) { console.error(e); }
+  const trackDefs = songTracks(song);
+  const savedMix = song.settings?.trackVolumes || [];
+  const buffers = [];
+  const loadedTracks = [];
+  for (let i = 0; i < trackDefs.length; i++) {
+    const td = trackDefs[i];
+    let blob = td.blob;
     if (!blob) {
-      // Not downloaded yet (Drive not connected) — back out so auto-open can retry after sync.
+      try { blob = await ensureTrackBlob(song, td); } catch (e) { console.error(e); }
+    }
+    if (!blob) {
+      // Not downloaded yet (single-track Drive song, offline) — back out so
+      // auto-open can retry after sync.
       toast('This song isn’t downloaded — connect Drive to fetch it');
       hideWaveLoading();
       state.song = null;
       $('#player').classList.add('hidden');
       return;
     }
+    showWaveLoading(`Loading “${song.name}”… (${i + 1}/${trackDefs.length})`);
+    const buf = await decodeBlob(blob);
+    buffers.push(buf);
+    const mix = savedMix[i] || {};
+    loadedTracks.push({
+      id: td.id || String(i),
+      name: td.name || prettyStem(td.stem) || `Track ${i + 1}`,
+      buffer: buf,
+      volume: mix.volume == null ? (td.volume == null ? 1 : td.volume) : mix.volume,
+      muted: !!mix.muted,
+    });
   }
-  showWaveLoading(`Loading “${song.name}”…`);
-  state.buffer = await decodeBlob(blob);
+  state.tracks = loadedTracks;
+
+  state.buffer = mixBuffers(ctx, buffers);
   state.peaks = computePeaks(state.buffer);
   wave.setPeaks(state.peaks, state.buffer.duration);
   updateZoomReadout();
@@ -410,11 +475,12 @@ async function loadSong(song, { autoplay = false } = {}) {
     db.setSongDuration(song.id, state.buffer.duration).then(() => { schedulePush(); renderSongList(); });
   }
 
-  // fresh engine
+  // fresh engine (one Signalsmith engine per stem)
   if (state.engine) { state.engine.dispose(); state.engine = null; }
   try {
     state.engine = await buildEngine();
-    await state.engine.load(state.buffer);
+    await state.engine.load(loadedTracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
+    loadedTracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
   } catch (err) {
     console.error('Engine load failed:', err);
     state.engine = null;
@@ -423,6 +489,7 @@ async function loadSong(song, { autoplay = false } = {}) {
     showAudioFailBanner();
     return; // don't rethrow — avoid an uncaught rejection
   }
+  renderTrackMix();
 
   // loops
   state.loops = await db.getLoops(song.id);
@@ -568,6 +635,57 @@ function syncControls() {
   setSpeed(state.speed * 100);
   setPitch(state.pitch);
   updateLoopReadout();
+}
+
+// ---------- track mix (stems) ----------
+function renderTrackMix() {
+  const box = $('#trackMix');
+  if (!box) return;
+  if (state.tracks.length <= 1) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="trackmix-head muted">Tracks</div>`;
+  state.tracks.forEach((t, i) => {
+    const row = el(`
+      <div class="trackrow ${t.muted ? 'muted-row' : ''}">
+        <button class="btn mutebtn ${t.muted ? 'on' : ''}" title="Mute/unmute">${t.muted ? '🔇' : '🔊'}</button>
+        <div class="tname">${escapeHtml(t.name)}</div>
+        <input type="range" class="tvol" min="0" max="150" step="1" value="${Math.round(t.volume * 100)}" aria-label="${escapeHtml(t.name)} volume" />
+        <div class="tval mono muted">${Math.round(t.volume * 100)}%</div>
+      </div>`);
+    const slider = row.querySelector('.tvol');
+    const valEl = row.querySelector('.tval');
+    slider.addEventListener('input', () => {
+      const v = Number(slider.value) / 100;
+      t.volume = v;
+      if (t.muted) { t.muted = false; row.classList.remove('muted-row'); row.querySelector('.mutebtn').classList.remove('on'); row.querySelector('.mutebtn').textContent = '🔊'; }
+      state.engine?.setTrackVolume(i, v);
+      valEl.textContent = `${Math.round(v * 100)}%`;
+      persistTrackMix();
+    });
+    row.querySelector('.mutebtn').onclick = (e) => {
+      t.muted = !t.muted;
+      state.engine?.setTrackMuted(i, t.muted);
+      e.currentTarget.classList.toggle('on', t.muted);
+      e.currentTarget.textContent = t.muted ? '🔇' : '🔊';
+      row.classList.toggle('muted-row', t.muted);
+      persistTrackMix();
+    };
+    box.appendChild(row);
+  });
+}
+
+let trackMixTimer;
+function persistTrackMix() {
+  if (!state.song) return;
+  clearTimeout(trackMixTimer);
+  trackMixTimer = setTimeout(() => {
+    const trackVolumes = state.tracks.map((t) => ({ volume: t.volume, muted: t.muted }));
+    db.updateSongSettings(state.song.id, { trackVolumes }).then(schedulePush);
+  }, 300);
 }
 
 // ---------- loops ----------
@@ -905,21 +1023,46 @@ function clampMarkerLoop() {
 // ---------- library ----------
 async function importFiles(files) {
   ensureAudio();
-  const added = [];
+  // Group lalal.ai stems that share a base name into one multi-track song.
+  const groups = new Map();
   for (const file of files) {
+    const { base, stem } = parseLalalai(file.name);
+    const key = stem ? `g:${base}` : `s:${file.name}`;
+    if (!groups.has(key)) groups.set(key, { base, files: [] });
+    groups.get(key).files.push({ file, stem });
+  }
+  let count = 0;
+  let singleAdded = false;
+  for (const { base, files: gf } of groups.values()) {
     try {
-      const buffer = await decodeBlob(file);
-      const song = await db.addSong({ name: file.name.replace(/\.[^.]+$/, ''), blob: file, duration: buffer.duration });
-      added.push({ song, file });
+      if (gf.length > 1) {
+        gf.sort((a, b) => stemRank(a.stem) - stemRank(b.stem));
+        const tracks = [];
+        let dur = 0;
+        for (const { file, stem } of gf) {
+          const buf = await decodeBlob(file);
+          dur = Math.max(dur, buf.duration);
+          tracks.push({ id: db.uid(), name: prettyStem(stem), stem, blob: file, driveFileId: null, volume: 1 });
+        }
+        await db.addSong({ name: base, duration: dur, tracks });
+        count++;
+      } else {
+        const { file, stem } = gf[0];
+        const buf = await decodeBlob(file);
+        const name = stem ? base : file.name.replace(/\.[^.]+$/, '');
+        await db.addSong({ name, blob: file, duration: buf.duration });
+        count++;
+        singleAdded = true;
+      }
     } catch (e) {
       console.error(e);
-      toast(`Could not read ${file.name}`);
+      toast(`Could not read ${base}`);
     }
   }
   await renderSongList();
-  toast('Added to library');
-  // If connected, upload the new songs to Drive and sync.
-  if (drive.isConnected() && added.length) {
+  toast(count ? 'Added to library' : 'Nothing added');
+  // Upload single-track additions to Drive (multi-track stem sync comes later).
+  if (drive.isConnected() && singleAdded) {
     updateSyncStatus('Uploading to Drive…');
     syncNow({ quiet: true });
   }
@@ -1076,6 +1219,14 @@ async function ensureBlob(song) {
   return null;
 }
 
+// Get a stem's audio blob. Multi-track stems are stored locally (not yet synced
+// to Drive); the legacy single-track blob lives on the song and may need a fetch.
+async function ensureTrackBlob(song, track) {
+  if (track.blob) return track.blob;
+  if (track.id === 'main' && !song.tracks) return await ensureBlob(song);
+  return null;
+}
+
 function updateSyncStatus(text) {
   const el2 = $('#syncStatus');
   if (el2) el2.textContent = text;
@@ -1128,7 +1279,7 @@ async function renderSongList() {
   for (const s of songs) {
     const row = el(`
       <div class="song ${state.song?.id === s.id ? 'active' : ''}">
-        <div class="title">${escapeHtml(s.name)}${s.driveFileId && !s.blob ? ' <span class="muted" style="font-size:11px">☁︎</span>' : ''}</div>
+        <div class="title">${escapeHtml(s.name)}${s.tracks && s.tracks.length > 1 ? ` <span class="muted" style="font-size:11px">· ${s.tracks.length} tracks</span>` : ''}${s.driveFileId && !s.blob ? ' <span class="muted" style="font-size:11px">☁︎</span>' : ''}</div>
         <div class="dur mono">${s.duration ? fmt(s.duration) : '—'}</div>
         <button class="iconbtn" title="Delete">🗑</button>
       </div>`);
@@ -1336,6 +1487,7 @@ if (import.meta.env.DEV) {
     togglePlay,
     toggleLoop,
     loadSong,
+    importFiles,
     buildManifest,
     applyManifest,
     db,

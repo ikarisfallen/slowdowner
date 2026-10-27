@@ -51,11 +51,12 @@ export async function createSignalsmithEngine(ctx) {
       apply({ input: 0, active: false });
     },
 
-    play() {
+    play(when = ctx.currentTime) {
       playing = true;
-      // start(when, offset): begin now at the saved position (start() alone restarts
+      // start(when, offset): begin at the saved position (start() alone restarts
       // at 0; passing when=0 makes it fast-forward from the far past, so use now).
-      stretch.start(ctx.currentTime, position);
+      // `when` is shared across engines so stems launch on the same clock instant.
+      stretch.start(when, position);
       apply(); // apply rate/pitch/loop, continuing from that offset (no input = keep current)
     },
 

@@ -46,12 +46,16 @@ export const uid = () =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 // ---- Songs ----
-export async function addSong({ name, blob, duration }) {
+// A song is either single-track (a `blob`) or multi-track (a `tracks` array of
+// { id, name, blob, driveFileId, volume } — one per stem). loadSong normalizes
+// both shapes, so single-track songs added before multi-track existed still work.
+export async function addSong({ name, blob, duration, tracks }) {
   const now = Date.now();
   const song = {
     id: uid(),
     name,
-    blob,
+    blob: tracks ? null : blob,
+    tracks: tracks || null,
     duration,
     addedAt: now,
     updatedAt: now,
