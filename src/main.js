@@ -433,7 +433,7 @@ async function loadSong(song, { autoplay = false } = {}) {
   showWaveLoading(song.blob ? `Loading “${song.name}”…` : `Downloading “${song.name}”…`);
 
   const trackDefs = songTracks(song);
-  const savedMix = song.settings?.trackVolumes || [];
+  const savedMix = song.settings?.trackVolumes || {};
   const buffers = [];
   const loadedTracks = [];
   for (let i = 0; i < trackDefs.length; i++) {
@@ -443,7 +443,7 @@ async function loadSong(song, { autoplay = false } = {}) {
       try { blob = await ensureTrackBlob(song, td); } catch (e) { console.error(e); }
     }
     if (!blob) {
-      // Not downloaded yet (single-track Drive song, offline) — back out so
+      // A stem (or single-track Drive song) isn't downloaded yet — back out so
       // auto-open can retry after sync.
       toast('This song isn’t downloaded — connect Drive to fetch it');
       hideWaveLoading();
@@ -454,9 +454,12 @@ async function loadSong(song, { autoplay = false } = {}) {
     showWaveLoading(`Loading “${song.name}”… (${i + 1}/${trackDefs.length})`);
     const buf = await decodeBlob(blob);
     buffers.push(buf);
-    const mix = savedMix[i] || {};
+    const mixKey = td.stem || td.id || String(i);
+    const mix = (Array.isArray(savedMix) ? savedMix[i] : savedMix[mixKey]) || {};
     loadedTracks.push({
       id: td.id || String(i),
+      stem: td.stem || null,
+      mixKey,
       name: td.name || prettyStem(td.stem) || `Track ${i + 1}`,
       buffer: buf,
       volume: mix.volume == null ? (td.volume == null ? 1 : td.volume) : mix.volume,
@@ -683,7 +686,8 @@ function persistTrackMix() {
   if (!state.song) return;
   clearTimeout(trackMixTimer);
   trackMixTimer = setTimeout(() => {
-    const trackVolumes = state.tracks.map((t) => ({ volume: t.volume, muted: t.muted }));
+    const trackVolumes = {};
+    state.tracks.forEach((t) => { trackVolumes[t.mixKey] = { volume: t.volume, muted: t.muted }; });
     db.updateSongSettings(state.song.id, { trackVolumes }).then(schedulePush);
   }, 300);
 }
@@ -1032,7 +1036,6 @@ async function importFiles(files) {
     groups.get(key).files.push({ file, stem });
   }
   let count = 0;
-  let singleAdded = false;
   for (const { base, files: gf } of groups.values()) {
     try {
       if (gf.length > 1) {
@@ -1042,9 +1045,9 @@ async function importFiles(files) {
         for (const { file, stem } of gf) {
           const buf = await decodeBlob(file);
           dur = Math.max(dur, buf.duration);
-          tracks.push({ id: db.uid(), name: prettyStem(stem), stem, blob: file, driveFileId: null, volume: 1 });
+          tracks.push({ id: db.uid(), name: prettyStem(stem), stem, filename: file.name, blob: file, driveFileId: null, volume: 1 });
         }
-        await db.addSong({ name: base, duration: dur, tracks });
+        await db.addSong({ name: base, duration: dur, tracks, driveBase: base });
         count++;
       } else {
         const { file, stem } = gf[0];
@@ -1052,7 +1055,6 @@ async function importFiles(files) {
         const name = stem ? base : file.name.replace(/\.[^.]+$/, '');
         await db.addSong({ name, blob: file, duration: buf.duration });
         count++;
-        singleAdded = true;
       }
     } catch (e) {
       console.error(e);
@@ -1061,44 +1063,63 @@ async function importFiles(files) {
   }
   await renderSongList();
   toast(count ? 'Added to library' : 'Nothing added');
-  // Upload single-track additions to Drive (multi-track stem sync comes later).
-  if (drive.isConnected() && singleAdded) {
+  // Upload the new songs (single-track and stems) to Drive and sync.
+  if (drive.isConnected() && count) {
     updateSyncStatus('Uploading to Drive…');
     syncNow({ quiet: true });
   }
 }
 
 // ---------- sync (Google Drive) ----------
-// Songs are matched across devices by their Drive file id (the folder is the
-// source of truth for which songs exist); the manifest holds loops/settings
-// keyed by that id.
+// The Drive folder is the source of truth for which songs exist. Single-track
+// songs are keyed by their one Drive file id; multi-track (stem) songs are keyed
+// by `base:<base name>` — the lalal.ai base that groups their stems. The manifest
+// holds loops/markers/settings (incl. per-stem volumes) under those keys.
 async function buildManifest() {
   const songs = await db.getSongs();
   const entries = {};
   for (const s of songs) {
-    if (!s.driveFileId) continue; // only files that live in Drive
     const loops = await db.getLoops(s.id);
-    entries[s.driveFileId] = {
-      name: s.name,
-      duration: s.duration || 0,
-      updatedAt: s.updatedAt || s.addedAt || 0,
-      settings: s.settings || {},
-      markers: s.markers || [],
-      loops: loops.map((l) => ({ id: l.id, name: l.name, start: l.start, end: l.end, createdAt: l.createdAt })),
-    };
+    const loopData = loops.map((l) => ({ id: l.id, name: l.name, start: l.start, end: l.end, createdAt: l.createdAt }));
+    if (s.tracks && s.tracks.length) {
+      if (!s.tracks.some((t) => t.driveFileId)) continue; // not uploaded yet
+      entries[`base:${s.driveBase || s.name}`] = {
+        name: s.name, multi: true,
+        duration: s.duration || 0,
+        updatedAt: s.updatedAt || s.addedAt || 0,
+        settings: s.settings || {},
+        markers: s.markers || [],
+        loops: loopData,
+      };
+    } else if (s.driveFileId) {
+      entries[s.driveFileId] = {
+        name: s.name,
+        duration: s.duration || 0,
+        updatedAt: s.updatedAt || s.addedAt || 0,
+        settings: s.settings || {},
+        markers: s.markers || [],
+        loops: loopData,
+      };
+    }
   }
-  return { version: 2, updatedAt: Date.now(), entries };
+  return { version: 3, updatedAt: Date.now(), entries };
 }
 
 async function applyManifest(manifest) {
   const entries = manifest?.entries;
   if (!entries) return;
-  for (const [driveFileId, e] of Object.entries(entries)) {
-    const local = await db.getSongByDriveId(driveFileId);
+  for (const [key, e] of Object.entries(entries)) {
+    let local;
+    if (e.multi || key.startsWith('base:')) {
+      const base = key.replace(/^base:/, '');
+      local = (await db.getSongByDriveBase(base)) || (await db.getSongs()).find((s) => s.tracks && s.name === base) || null;
+    } else {
+      local = await db.getSongByDriveId(key);
+    }
     if (!local) continue; // no local record yet (folder scan creates it first)
     if ((e.updatedAt || 0) > (local.updatedAt || 0)) {
-      // Name stays whatever the Drive filename is (set during the folder scan);
-      // the manifest only carries settings/loops/duration.
+      // Names/tracks come from the Drive filenames (set during the folder scan);
+      // the manifest only carries settings/loops/markers/duration.
       await db.putSongRaw({
         ...local, duration: e.duration || local.duration,
         updatedAt: e.updatedAt, settings: e.settings || local.settings || {},
@@ -1109,34 +1130,79 @@ async function applyManifest(manifest) {
   }
 }
 
+function trackFromDriveFile(f, stem) {
+  return { id: db.uid(), name: prettyStem(stem), stem, filename: f.name, driveFileId: f.id, blob: null, volume: 1 };
+}
+
 // Bring the local library in line with the audio files present in the Drive
-// folder: add any new ones, so files you dropped in Drive appear here.
+// folder: group lalal.ai stems by base name into multi-track songs, add any new
+// songs, and keep names in step with the Drive filenames.
 async function scanDriveFolder() {
   const files = await drive.listAudioFiles();
   const driveIds = new Set(files.map((f) => f.id));
-  // Add new audio files; keep names in step with the Drive filename (which is
-  // the source of truth, so a rename in Drive shows up here).
+
+  // Group: lalal.ai stems that share a base become one multi-track song.
+  const groups = new Map();
   for (const f of files) {
-    const cleanName = f.name.replace(/\.[^.]+$/, '');
-    const existing = await db.getSongByDriveId(f.id);
-    if (!existing) {
-      const now = Date.now();
-      await db.putSongRaw({
-        id: db.uid(), name: cleanName, duration: 0,
-        addedAt: now, updatedAt: 0, settings: { speed: 1, pitch: 0, volume: 1 },
-        markers: [], driveFileId: f.id, blob: null,
-      });
-    } else if (existing.name !== cleanName) {
-      await db.putSongRaw({ ...existing, name: cleanName });
+    const { base, stem } = parseLalalai(f.name);
+    const key = stem ? `g:${base}` : `s:${f.id}`;
+    if (!groups.has(key)) groups.set(key, { base, multi: !!stem, files: [] });
+    groups.get(key).files.push({ f, stem });
+  }
+
+  for (const g of groups.values()) {
+    if (g.multi && g.files.length > 1) {
+      g.files.sort((a, b) => stemRank(a.stem) - stemRank(b.stem));
+      let song = (await db.getSongByDriveBase(g.base)) || (await db.getSongs()).find((s) => s.tracks && s.name === g.base);
+      if (!song) {
+        const now = Date.now();
+        await db.putSongRaw({
+          id: db.uid(), name: g.base, duration: 0, addedAt: now, updatedAt: 0,
+          settings: { speed: 1, pitch: 0, volume: 1, trackVolumes: {} }, markers: [],
+          driveFileId: null, driveBase: g.base, blob: null,
+          tracks: g.files.map(({ f, stem }) => trackFromDriveFile(f, stem)),
+        });
+      } else {
+        // Make sure each Drive stem maps to a track with that file id.
+        let changed = false;
+        if (!song.driveBase) { song.driveBase = g.base; changed = true; }
+        song.tracks = song.tracks || [];
+        for (const { f, stem } of g.files) {
+          let t = song.tracks.find((t) => t.driveFileId === f.id) ||
+                  song.tracks.find((t) => (t.stem || '') === stem && !t.driveFileId);
+          if (!t) { song.tracks.push(trackFromDriveFile(f, stem)); changed = true; }
+          else if (t.driveFileId !== f.id) { t.driveFileId = f.id; changed = true; }
+        }
+        if (changed) await db.putSongRaw(song);
+      }
+    } else {
+      // Single-track files (plain songs, or a lone stem).
+      for (const { f } of g.files) {
+        const cleanName = f.name.replace(/\.[^.]+$/, '');
+        const existing = await db.getSongByDriveId(f.id);
+        if (!existing) {
+          const now = Date.now();
+          await db.putSongRaw({
+            id: db.uid(), name: cleanName, duration: 0,
+            addedAt: now, updatedAt: 0, settings: { speed: 1, pitch: 0, volume: 1 },
+            markers: [], driveFileId: f.id, blob: null,
+          });
+        } else if (existing.name !== cleanName && !existing.tracks) {
+          await db.putSongRaw({ ...existing, name: cleanName });
+        }
+      }
     }
   }
-  // Prune library entries whose Drive file is gone (e.g. the manifest that was
-  // wrongly scanned before, or a song deleted from the Drive folder). Removes
-  // only the LOCAL record — never touches Drive.
+
+  // Prune library entries whose Drive file(s) are gone. Removes only the LOCAL
+  // record — never touches Drive. Local-only songs (nothing uploaded) are kept.
   const local = await db.getSongs();
   for (const s of local) {
-    if (s.driveFileId && !driveIds.has(s.driveFileId)) {
-      if (state.song?.id === s.id) continue; // don't yank the song being played
+    if (state.song?.id === s.id) continue; // don't yank the song being played
+    if (s.tracks && s.tracks.length) {
+      const ids = s.tracks.map((t) => t.driveFileId).filter(Boolean);
+      if (ids.length && !ids.some((id) => driveIds.has(id))) await db.deleteSong(s.id);
+    } else if (s.driveFileId && !driveIds.has(s.driveFileId)) {
       await db.deleteSong(s.id);
     }
   }
@@ -1160,6 +1226,7 @@ function showSyncToast(text, done) {
 async function syncNow({ quiet = false } = {}) {
   if (!drive.isConnected() || syncing) return;
   syncing = true;
+  outOfSpace = false;
   lastSyncAt = Date.now();
   if (!quiet) updateSyncStatus('Syncing…');
   try {
@@ -1173,27 +1240,70 @@ async function syncNow({ quiet = false } = {}) {
     lastSyncAt = Date.now();
     updateSyncStatus('Synced ' + new Date().toLocaleTimeString());
     if (editToastPending) { showSyncToast('Saved to Drive', true); editToastPending = false; }
+    updateQuotaStatus(); // show free space when we have it
   } catch (e) {
     console.error('Sync failed:', e);
     updateSyncUi(); // if the token expired, show Connect again
-    updateSyncStatus(drive.isConnected() ? 'Sync error' : 'Session expired — click Connect');
-    if (editToastPending) { showSyncToast('Save failed', true); editToastPending = false; }
+    if (outOfSpace) {
+      updateSyncStatus('Google Drive is full — free up space');
+      toast('Upload stopped: your Google Drive is out of space');
+      if (editToastPending) { showSyncToast('Drive is full', true); editToastPending = false; }
+    } else {
+      updateSyncStatus(drive.isConnected() ? 'Sync error' : 'Session expired — click Connect');
+      if (editToastPending) { showSyncToast('Save failed', true); editToastPending = false; }
+    }
   } finally {
     syncing = false;
   }
 }
 
-// Upload songs added locally that aren't in Drive yet.
+// Upload songs added locally that aren't in Drive yet (single-track blobs and
+// multi-track stems). A Drive out-of-space error aborts the run and is surfaced.
+let outOfSpace = false;
 async function uploadPending() {
   const songs = await db.getSongs();
   for (const s of songs) {
-    if (!s.driveFileId && s.blob) {
+    if (s.tracks && s.tracks.length) {
+      for (const t of s.tracks) {
+        if (t.driveFileId || !t.blob) continue;
+        const fname = t.filename || `${s.name}_${t.stem || t.name}_split_by_lalalai.mp3`;
+        try {
+          const fileId = await drive.uploadFile(fname, t.blob, t.blob.type || 'audio/mpeg');
+          await db.setTrackDrive(s.id, t.id, fileId);
+        } catch (e) {
+          console.error('Upload failed for', fname, e);
+          if (drive.isQuotaError(e)) { outOfSpace = true; throw e; }
+        }
+      }
+    } else if (!s.driveFileId && s.blob) {
       try {
         const fileId = await drive.uploadFile(s.name + '.mp3', s.blob, s.blob.type || 'audio/mpeg');
         await db.setSongDrive(s.id, fileId);
-      } catch (e) { console.error('Upload failed for', s.name, e); }
+      } catch (e) {
+        console.error('Upload failed for', s.name, e);
+        if (drive.isQuotaError(e)) { outOfSpace = true; throw e; }
+      }
     }
   }
+}
+
+function fmtBytes(n) {
+  if (!n && n !== 0) return '?';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+}
+// Report free Drive space in the sync status (best-effort).
+async function updateQuotaStatus() {
+  try {
+    const info = await drive.about();
+    const q = info?.storageQuota;
+    if (q && q.limit) {
+      const free = Math.max(0, Number(q.limit) - Number(q.usage || 0));
+      updateSyncStatus(`${fmtBytes(free)} free on Drive`);
+    }
+  } catch { /* ignore */ }
 }
 
 let pushTimer;
@@ -1224,6 +1334,13 @@ async function ensureBlob(song) {
 async function ensureTrackBlob(song, track) {
   if (track.blob) return track.blob;
   if (track.id === 'main' && !song.tracks) return await ensureBlob(song);
+  if (track.driveFileId && drive.isConnected()) {
+    updateSyncStatus('Downloading “' + (track.name || song.name) + '”…');
+    const blob = await drive.downloadFile(track.driveFileId);
+    await db.setTrackBlob(song.id, track.id, blob);
+    updateSyncStatus('Connected');
+    return blob;
+  }
   return null;
 }
 

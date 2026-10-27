@@ -171,6 +171,16 @@ export async function downloadFile(fileId) {
   return await r.blob();
 }
 
+// Storage quota for the signed-in account (shared across Drive/Gmail/Photos).
+// { limit, usage, usageInDrive } in bytes; limit is absent for unlimited plans.
+export async function about() {
+  const r = await api('https://www.googleapis.com/drive/v3/about?fields=storageQuota,user');
+  return await r.json();
+}
+export function isQuotaError(e) {
+  return /storageQuotaExceeded|quotaExceeded|storage quota/i.test(e?.message || '');
+}
+
 // List audio files sitting in the Slowdowner folder (both app uploads and files
 // the user dropped in manually).
 export async function listAudioFiles() {

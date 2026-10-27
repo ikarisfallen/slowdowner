@@ -49,13 +49,14 @@ export const uid = () =>
 // A song is either single-track (a `blob`) or multi-track (a `tracks` array of
 // { id, name, blob, driveFileId, volume } — one per stem). loadSong normalizes
 // both shapes, so single-track songs added before multi-track existed still work.
-export async function addSong({ name, blob, duration, tracks }) {
+export async function addSong({ name, blob, duration, tracks, driveBase }) {
   const now = Date.now();
   const song = {
     id: uid(),
     name,
     blob: tracks ? null : blob,
     tracks: tracks || null,
+    driveBase: driveBase || null, // base name that groups a multi-track song's stems in Drive
     duration,
     addedAt: now,
     updatedAt: now,
@@ -65,6 +66,35 @@ export async function addSong({ name, blob, duration, tracks }) {
   };
   await tx('songs', 'readwrite', (s) => s.put(song));
   return song;
+}
+
+// Record the Drive file id for one stem of a multi-track song (after upload).
+export function setTrackDrive(songId, trackId, fileId) {
+  return tx('songs', 'readwrite', async (s) => {
+    const song = await reqP(s.get(songId));
+    if (!song || !song.tracks) return;
+    const t = song.tracks.find((t) => t.id === trackId);
+    if (!t) return;
+    t.driveFileId = fileId;
+    song.updatedAt = Date.now();
+    s.put(song);
+  });
+}
+
+// Cache a stem's downloaded blob locally (no updatedAt bump — not a user edit).
+export function setTrackBlob(songId, trackId, blob) {
+  return tx('songs', 'readwrite', async (s) => {
+    const song = await reqP(s.get(songId));
+    if (!song || !song.tracks) return;
+    const t = song.tracks.find((t) => t.id === trackId);
+    if (!t) return;
+    t.blob = blob;
+    s.put(song);
+  });
+}
+
+export function getSongByDriveBase(base) {
+  return getSongs().then((rows) => rows.find((s) => s.driveBase && s.driveBase === base) || null);
 }
 
 export function setMarkers(id, markers) {
