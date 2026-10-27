@@ -259,7 +259,7 @@ function render() {
     <div class="hint">Songs you add upload to a “Slowdowner” folder in your own Drive; loops &amp; settings sync via a small file there. Sign in with the same Google account on your laptop and phone to share everything.</div>
   </div>
 
-  <div class="muted" style="text-align:center; font-size:11px; margin-top:4px">Slowdowner · build ${__BUILD_TIME__}</div>`;
+  <div class="muted" style="text-align:center; font-size:11px; margin-top:4px">Slowdowner · v${__BUILD_NUMBER__} · ${__BUILD_TIME__} UTC</div>`;
 
   wireShell();
 }

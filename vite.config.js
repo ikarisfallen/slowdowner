@@ -6,7 +6,10 @@ export default defineConfig({
   // Local dev/build default to root.
   base: process.env.VITE_BASE || '/',
   define: {
-    // A build stamp so you can see which version is loaded (helps confirm PWA updates).
+    // Build stamps so you can see which version is loaded (helps confirm PWA
+    // updates). __BUILD_NUMBER__ is the CI run number (monotonic — higher = newer);
+    // __BUILD_TIME__ is the UTC build time. Both fall back to 'dev' locally.
+    __BUILD_NUMBER__: JSON.stringify(process.env.VITE_BUILD_NUMBER || 'dev'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
   },
   server: { host: true },        // expose on LAN so the phone can reach the dev server
