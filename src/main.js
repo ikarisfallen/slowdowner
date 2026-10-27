@@ -131,6 +131,7 @@ const state = {
   playing: false,
   chordsOn: (() => { try { return localStorage.getItem('chordsOn') !== '0'; } catch { return true; } })(),
   chordDetector: null,
+  chordEvents: [], // [{ t, label }] accumulated while playing the current song
 };
 
 let wave;
@@ -161,7 +162,7 @@ function render() {
 
   <div class="panel hidden" id="player">
     <h2 id="songTitle">—</h2>
-    <div class="wavewrap"><canvas class="wave" id="wave"></canvas><div class="chordlabel hidden" id="chordOverlay"></div><div class="waveloading hidden" id="waveLoading"><span class="spin">⟳</span> <span id="waveLoadingText">Loading…</span></div></div>
+    <div class="wavewrap"><canvas class="wave" id="wave"></canvas><div class="waveloading hidden" id="waveLoading"><span class="spin">⟳</span> <span id="waveLoadingText">Loading…</span></div></div>
     <div class="wavetools">
       <button class="btn" id="setA" title="Set loop start (A)">[</button>
       <button class="btn" id="setB" title="Set loop end (B)">]</button>
@@ -499,7 +500,9 @@ async function loadSong(song, { autoplay = false } = {}) {
   }
   renderTrackMix();
   state.chordDetector = state.engine.analyser ? createChordDetector(state.engine.analyser, ctx.sampleRate) : null;
+  state.chordEvents = [];
   resetChordState();
+  wave.setState({ chords: [] });
 
   // loops
   state.loops = await db.getLoops(song.id);
@@ -571,19 +574,20 @@ function loop(ts) {
 
 // ---------- chord detection ----------
 // Detection runs on the RAF loop (throttled). A chord must persist a couple of
-// ticks before it's shown, and clear after a few empty ticks, so the label is
-// steady rather than flickering per frame.
+// ticks before it's accepted (so single-frame guesses are ignored). Each new
+// confirmed chord is recorded at its time and drawn as small text on the
+// waveform, building up a chord track as you play through the song.
 let lastChordAt = 0;
-let chordPending = null, chordPendCount = 0, chordShown = null, chordNullCount = 0;
+let chordPending = null, chordPendCount = 0, chordShown = null;
 function resetChordState() {
-  chordPending = null; chordPendCount = 0; chordShown = null; chordNullCount = 0;
-  setChordOverlay(null);
+  chordPending = null; chordPendCount = 0; chordShown = null;
 }
-function setChordOverlay(label) {
-  const o = $('#chordOverlay');
-  if (!o) return;
-  if (state.chordsOn && label) { o.textContent = label; o.classList.remove('hidden'); }
-  else { o.textContent = ''; o.classList.add('hidden'); }
+function recordChord(label, t) {
+  const at = Math.max(0, t - 0.2); // approximate the chord's onset (confirmation lags)
+  if (state.chordEvents.some((e) => Math.abs(e.t - at) < 0.3)) return; // already labelled here
+  state.chordEvents.push({ t: at, label });
+  state.chordEvents.sort((a, b) => a.t - b.t);
+  wave.setState({ chords: state.chordEvents });
 }
 function maybeDetectChord(now) {
   if (!state.chordsOn || !state.chordDetector) return;
@@ -591,21 +595,20 @@ function maybeDetectChord(now) {
   lastChordAt = now;
   const c = state.chordDetector.detect();
   const lab = c ? c.label : null;
-  if (lab) {
-    chordNullCount = 0;
-    if (lab === chordShown) { chordPending = null; chordPendCount = 0; return; }
-    if (lab === chordPending) chordPendCount++; else { chordPending = lab; chordPendCount = 1; }
-    if (chordPendCount >= 2) { chordShown = lab; setChordOverlay(lab); chordPending = null; chordPendCount = 0; }
-  } else {
+  if (!lab) { chordPending = null; chordPendCount = 0; return; }
+  if (lab === chordShown) { chordPending = null; chordPendCount = 0; return; }
+  if (lab === chordPending) chordPendCount++; else { chordPending = lab; chordPendCount = 1; }
+  if (chordPendCount >= 2) {
+    chordShown = lab;
+    recordChord(lab, state.engine ? state.engine.getPosition() : 0);
     chordPending = null; chordPendCount = 0;
-    if (chordShown != null) { chordNullCount++; if (chordNullCount >= 3) { chordShown = null; setChordOverlay(null); } }
   }
 }
 function toggleChords(force) {
   state.chordsOn = force != null ? force : !state.chordsOn;
   try { localStorage.setItem('chordsOn', state.chordsOn ? '1' : '0'); } catch {}
   $('#chordToggle')?.classList.toggle('on', state.chordsOn);
-  if (!state.chordsOn) resetChordState();
+  wave.setState({ chords: state.chordsOn ? state.chordEvents : [] });
 }
 
 async function togglePlay() {

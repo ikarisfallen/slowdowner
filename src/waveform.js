@@ -36,6 +36,7 @@ export class Waveform {
     this.loop = null; // { start, end }
     this.savedLoops = [];
     this.markers = [];
+    this.chords = []; // [{ t, label }] detected chord changes, drawn as small text
     this.zoom = 1; // 1 = whole song; >1 = zoomed in
     this.viewStart = 0; // left edge of the view, in seconds
     this._drag = null;
@@ -70,7 +71,7 @@ export class Waveform {
     this.viewStart = 0;
     this.draw();
   }
-  setState({ position, loop, savedLoops, markers }) {
+  setState({ position, loop, savedLoops, markers, chords }) {
     if (position != null) {
       this.position = position;
       this._follow(); // keep the playhead in view when zoomed
@@ -78,6 +79,7 @@ export class Waveform {
     if (loop !== undefined) this.loop = loop;
     if (savedLoops) this.savedLoops = savedLoops;
     if (markers !== undefined) this.markers = markers || [];
+    if (chords !== undefined) this.chords = chords || [];
     this.draw();
   }
 
@@ -228,6 +230,22 @@ export class Waveform {
       c.lineTo(x, 8);
       c.closePath();
       c.fill();
+    }
+
+    // chord labels — tiny text at the top, at each detection time. Dense when
+    // zoomed out (overlaps are thinned by pixel spacing), readable when zoomed in.
+    if (this.chords && this.chords.length) {
+      c.font = '9px system-ui, -apple-system, sans-serif';
+      c.textBaseline = 'top';
+      c.fillStyle = '#cdd3df';
+      let lastRight = -Infinity;
+      for (const ev of this.chords) {
+        if (ev.t < vStart || ev.t > vEnd) continue;
+        const x = this._timeToX(ev.t);
+        if (x < lastRight + 2) continue; // skip overprinting when zoomed out
+        c.fillText(ev.label, x + 1, 1);
+        lastRight = x + c.measureText(ev.label).width + 1;
+      }
     }
 
     // playhead

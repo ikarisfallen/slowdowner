@@ -70,10 +70,11 @@ export function createChordDetector(analyser, sampleRate) {
         else if (score > second) { second = score; }
       }
 
-      // Require a strong match and a clear margin over the runner-up (which
+      // Require a reasonable match and a small margin over the runner-up (which
       // separates e.g. a major from its relative minor when the third is faint).
-      if (bestScore < 0.6) return null;
-      if (bestScore - second < 0.03) return null;
+      // Tuned loose: this is a dense best-effort hint, not a strict transcriber.
+      if (bestScore < 0.5) return null;
+      if (bestScore - second < 0.02) return null;
       return { label: best.label, root: best.root, quality: best.q, score: bestScore };
     },
   };
