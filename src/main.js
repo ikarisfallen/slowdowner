@@ -131,7 +131,8 @@ const state = {
   volume: 1, // output gain multiplier (boost quiet stems)
   playing: false,
   chordsOn: (() => { try { return localStorage.getItem('chordsOn') !== '0'; } catch { return true; } })(),
-  chordEvents: [], // [{ t, label }] detected chord track for the current song
+  chordEvents: [], // [{ t, label }] detected bass-root fallback for the current song
+  chartGrid: null, // { downbeats:[t], beatPeriod, beatsPerBar } detected beat/bar grid
   chartExpanded: false,
 };
 
@@ -244,6 +245,12 @@ function render() {
       <button class="disclosure" id="chartToggle"><span id="chartChev">▸</span> <span id="chartToggleLabel">Chord chart</span></button>
       <div id="chartPanel" class="hidden">
         <div id="chartBox"></div>
+        <div class="looprow hidden" id="chartAlign" style="margin-top:8px; align-items:center">
+          <span class="muted" style="font-size:12px">Align to audio:</span>
+          <button class="btn" id="chartShiftBack" title="Shift the form back one bar">◀ bar</button>
+          <button class="btn" id="chartShiftFwd" title="Shift the form forward one bar">bar ▶</button>
+          <button class="btn" id="chartAnchorHere" title="Set bar 1 of the form at the playhead">Bar 1 = playhead</button>
+        </div>
         <div class="looprow" style="margin-top:8px">
           <label class="btn" style="cursor:pointer"><input type="file" id="chartFile" accept=".musicxml,.xml,.mxl,application/xml,text/xml" hidden />＋ Add chart (MusicXML)</label>
           <button class="btn ghost hidden" id="chartRemove">Remove chart</button>
@@ -590,38 +597,92 @@ function loop(ts) {
 let chordToken = 0;
 async function analyzeChords(song) {
   const myToken = ++chordToken;
-  // Roots come only from a separate bass stem; rhythm (beat grid) from no_bass.
+  // Beat grid from the no_bass rhythm (used to lay a chart onto the bars); the
+  // detected bass roots are only a rough fallback when there's no chart.
   const bass = state.tracks.find((t) => /bass/.test(t.stem || '') && !/^no_/.test(t.stem || ''));
+  const nobass = state.tracks.find((t) => /^no_?bass/.test(t.stem || ''));
+  const hasChart = !!song.chart;
   const btn = $('#chordToggle');
   if (btn) {
-    btn.disabled = !bass; // grey out when there's no bass track to read roots from
-    btn.title = bass ? 'Show the detected root notes over the waveform' : 'Needs a separate bass stem';
+    btn.disabled = !bass && !hasChart;
+    btn.title = hasChart ? 'Show the chord chart over the waveform'
+      : bass ? 'Show the detected root notes over the waveform' : 'Needs a bass stem or a chord chart';
   }
-  if (!bass) { state.chordEvents = []; wave.setState({ chords: [] }); return; }
+  if (!bass && !hasChart) { state.chordEvents = []; state.chartGrid = null; wave.setState({ chords: [] }); return; }
 
-  if (song.chords && song.chords.length && song.chordsVer === CHORDS_VERSION) {
-    state.chordEvents = song.chords;
-    if (state.chordsOn) wave.setState({ chords: state.chordEvents });
+  if (song.chordsVer === CHORDS_VERSION && song.chordGrid) {
+    state.chordEvents = song.chords || [];
+    state.chartGrid = song.chordGrid;
+    refreshChordOverlay();
     return;
   }
-  const nobass = state.tracks.find((t) => /^no_?bass/.test(t.stem || ''));
-  const rhythmBuf = nobass ? nobass.buffer : bass.buffer; // no_bass for rhythm; bass as fallback
-  const an = makeChordAnalysis(rhythmBuf, { bassBuffer: bass.buffer });
+  const rhythmBuf = (nobass && nobass.buffer) || (bass && bass.buffer) || state.buffer;
+  const an = makeChordAnalysis(rhythmBuf, { bassBuffer: bass ? bass.buffer : null });
   while (true) {
     const done = an.step(80);
     if (myToken !== chordToken) return; // another song loaded — abandon this run
-    state.chordEvents = an.events();
-    if (state.chordsOn) wave.setState({ chords: state.chordEvents });
-    if (done) break;
+    if (done) { state.chordEvents = an.events(); state.chartGrid = an.grid(); refreshChordOverlay(); break; }
+    if (!hasChart) { state.chordEvents = an.events(); refreshChordOverlay(); } // progressive roots when no chart
     await new Promise((r) => setTimeout(r, 0)); // yield so the song keeps playing
   }
-  db.setSongChords(song.id, state.chordEvents, CHORDS_VERSION);
+  db.setSongChords(song.id, state.chordEvents, state.chartGrid, CHORDS_VERSION);
+}
+
+// Lay the attached chart's chords onto the detected bars (looping the form), so
+// the real chords ride the waveform instead of the noisy bass-root guesses.
+function buildChartOverlay() {
+  const chart = state.song?.chart;
+  const grid = state.chartGrid;
+  if (!chart || !grid?.downbeats?.length) return [];
+  const dbs = grid.downbeats;
+  const bars = chart.bars;
+  const formLen = bars.length;
+  const anchor = chart.anchor || 0;
+  const bpb = chart.beatsPerBar || 4;
+  const out = [];
+  for (let j = 0; j < dbs.length; j++) {
+    const barStart = dbs[j];
+    const nextStart = j + 1 < dbs.length ? dbs[j + 1] : barStart + grid.beatPeriod * bpb;
+    const barDur = nextStart - barStart;
+    const ci = (((j - anchor) % formLen) + formLen) % formLen;
+    const bar = bars[ci];
+    const chords = bar.chords.length ? bar.chords : (bar.held ? [{ beat: 1, sym: bar.held }] : []);
+    for (const c of chords) {
+      if (!c.sym) continue;
+      out.push({ t: barStart + ((c.beat - 1) / bpb) * barDur, label: c.sym });
+    }
+  }
+  return out;
+}
+function refreshChordOverlay() {
+  if (!state.chordsOn) { wave.setState({ chords: [] }); return; }
+  const chart = state.song?.chart;
+  if (chart && state.chartGrid?.downbeats?.length) wave.setState({ chords: buildChartOverlay() });
+  else wave.setState({ chords: state.chordEvents || [] });
+}
+function setChartAnchorHere() {
+  const chart = state.song?.chart, grid = state.chartGrid;
+  if (!chart || !grid?.downbeats?.length) return;
+  const t = state.engine ? state.engine.getPosition() : 0;
+  let best = 0, bd = Infinity;
+  grid.downbeats.forEach((dt, i) => { const d = Math.abs(dt - t); if (d < bd) { bd = d; best = i; } });
+  chart.anchor = best;
+  db.setSongChart(state.song.id, chart);
+  refreshChordOverlay();
+  toast('Bar 1 aligned to playhead');
+}
+function shiftChart(d) {
+  const chart = state.song?.chart;
+  if (!chart) return;
+  chart.anchor = (chart.anchor || 0) + d;
+  db.setSongChart(state.song.id, chart);
+  refreshChordOverlay();
 }
 function toggleChords(force) {
   state.chordsOn = force != null ? force : !state.chordsOn;
   try { localStorage.setItem('chordsOn', state.chordsOn ? '1' : '0'); } catch {}
   $('#chordToggle')?.classList.toggle('on', state.chordsOn);
-  wave.setState({ chords: state.chordsOn ? state.chordEvents : [] });
+  refreshChordOverlay();
 }
 
 async function togglePlay() {
@@ -1104,6 +1165,7 @@ async function addChart(file) {
     await db.setSongChart(state.song.id, chart);
     state.song.chart = chart;
     toggleChartPanel(true);
+    await analyzeChords(state.song); // ensure a beat grid + show the chart on the waveform
     toast(`Chart added — ${chart.bars.length} bars`);
   } catch (e) {
     console.error(e);
@@ -1117,6 +1179,7 @@ function renderChart() {
     ? `${state.chartExpanded ? 'Hide' : 'Show'} chord chart (${chart.bars.length} bars)`
     : 'Chord chart';
   $('#chartRemove')?.classList.toggle('hidden', !chart);
+  $('#chartAlign')?.classList.toggle('hidden', !chart);
   const box = $('#chartBox');
   if (!box) return;
   if (!chart) {
@@ -1667,8 +1730,12 @@ function wireShell() {
     await db.setSongChart(state.song.id, null);
     state.song.chart = null;
     renderChart();
+    await analyzeChords(state.song); // back to the detected-root fallback / button state
     toast('Chart removed');
   };
+  $('#chartShiftBack').onclick = () => shiftChart(-1);
+  $('#chartShiftFwd').onclick = () => shiftChart(1);
+  $('#chartAnchorHere').onclick = () => setChartAnchorHere();
 
   $('#spanSelect').onchange = (e) => setSpan(Number(e.target.value));
   $('#markerLoopHere').onclick = () => markerLoopStart();
@@ -1742,6 +1809,9 @@ if (import.meta.env.DEV) {
     toggleLoop,
     loadSong,
     importFiles,
+    analyzeChords,
+    buildChartOverlay,
+    refreshChordOverlay,
     buildManifest,
     applyManifest,
     db,

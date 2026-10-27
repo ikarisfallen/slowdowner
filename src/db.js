@@ -110,11 +110,12 @@ export function setSongChart(id, chart) {
 
 // Cache the detected chord track for a song (local only — not synced; recomputed
 // per device). No updatedAt bump: it's derived data, not a user edit.
-export function setSongChords(id, chords, version) {
+export function setSongChords(id, chords, grid, version) {
   return tx('songs', 'readwrite', async (s) => {
     const song = await reqP(s.get(id));
     if (!song) return;
     song.chords = chords;
+    song.chordGrid = grid; // detected beat/bar grid, for laying a chart onto the bars
     song.chordsVer = version;
     s.put(song);
   });

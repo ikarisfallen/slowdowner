@@ -9,7 +9,7 @@
 const NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 
 // Bump when the scheme/algorithm changes so cached tracks (db.setSongChords) recompute.
-export const CHORDS_VERSION = 8;
+export const CHORDS_VERSION = 9;
 
 // In-place iterative radix-2 FFT. re/im are Float32Array of length n (power of 2).
 function fft(re, im) {
@@ -103,6 +103,7 @@ export function makeChordAnalysis(rhythmBuffer, { bassBuffer = null, targetSr = 
   }
 
   let events = [];
+  let grid = null;
   let finalized = false;
 
   function finalize() {
@@ -132,21 +133,38 @@ export function makeChordAnalysis(rhythmBuffer, { bassBuffer = null, targetSr = 
       if (s > bestPSum) { bestPSum = s; bestPhase = p; }
     }
 
+    // Beat grid + downbeat (bar of 4): the beat offset with the most onset energy
+    // is beat 1. Exposed so a chord chart can be laid onto the bars.
+    const beatFrames = [];
+    for (let f = bestPhase; f < nFrames; f += bestLag) beatFrames.push(f);
+    let bestB = 0, bestBSum = -1;
+    for (let b = 0; b < 4; b++) {
+      let s = 0;
+      for (let i = b; i < beatFrames.length; i += 4) s += flux[beatFrames[i]];
+      if (s > bestBSum) { bestBSum = s; bestB = b; }
+    }
+    const downbeats = [];
+    for (let i = 0; i < beatFrames.length; i++) {
+      if (((i - bestB) % 4 + 4) % 4 === 0) downbeats.push(beatFrames[i] / frameRate);
+    }
+    grid = { downbeats, beatPeriod: bestLag / frameRate, beatsPerBar: 4 };
+
     // Walk a subdivided grid (eighth notes) and drop a root wherever the bass
     // note changes — denser than one-per-bar, catches mid-bar/walking-bass roots,
     // and avoids repeating the same letter while a root is held.
+    events = [];
     const SUBDIV = 2;
     const stepF = bestLag / SUBDIV;
-    if (stepF < 1) { events = []; return; }
-    events = [];
-    let prevRoot = -1;
-    for (let p = bestPhase; p < nFrames; p += stepF) {
-      const t = p / frameRate;
-      const root = bassRootAt(t);
-      if (root < 0) continue;        // unclear — hold the current guide
-      if (root === prevRoot) continue; // same root — no new label
-      events.push({ t, label: NAMES[root] });
-      prevRoot = root;
+    if (bass && stepF >= 1) {
+      let prevRoot = -1;
+      for (let p = bestPhase; p < nFrames; p += stepF) {
+        const t = p / frameRate;
+        const root = bassRootAt(t);
+        if (root < 0) continue;        // unclear — hold the current guide
+        if (root === prevRoot) continue; // same root — no new label
+        events.push({ t, label: NAMES[root] });
+        prevRoot = root;
+      }
     }
   }
 
@@ -171,5 +189,6 @@ export function makeChordAnalysis(rhythmBuffer, { bassBuffer = null, targetSr = 
       return fi >= nFrames;
     },
     events() { return events; },
+    grid() { return grid; },
   };
 }
