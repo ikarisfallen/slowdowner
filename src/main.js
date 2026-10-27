@@ -1,6 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { createChordDetector } from './chords.js';
+import { makeChordAnalysis } from './chords.js';
 import { Waveform, computePeaks } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
@@ -130,8 +130,7 @@ const state = {
   volume: 1, // output gain multiplier (boost quiet stems)
   playing: false,
   chordsOn: (() => { try { return localStorage.getItem('chordsOn') !== '0'; } catch { return true; } })(),
-  chordDetector: null,
-  chordEvents: [], // [{ t, label }] accumulated while playing the current song
+  chordEvents: [], // [{ t, label }] detected chord track for the current song
 };
 
 let wave;
@@ -357,7 +356,6 @@ async function recoverAudio(reason) {
       state.engine = await buildEngine();
       await state.engine.load(state.tracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
       state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
-      state.chordDetector = state.engine.analyser ? createChordDetector(state.engine.analyser, ctx.sampleRate) : null;
       applyEngineParams();
       state.engine.seek(pos);
       updatePlayhead(pos);
@@ -499,10 +497,9 @@ async function loadSong(song, { autoplay = false } = {}) {
     return; // don't rethrow — avoid an uncaught rejection
   }
   renderTrackMix();
-  state.chordDetector = state.engine.analyser ? createChordDetector(state.engine.analyser, ctx.sampleRate) : null;
   state.chordEvents = [];
-  resetChordState();
   wave.setState({ chords: [] });
+  analyzeChords(song); // offline, chunked, cached — fills in the chord track
 
   // loops
   state.loops = await db.getLoops(song.id);
@@ -562,7 +559,6 @@ function loop(ts) {
   if (!state.engine) return;
   const pos = state.engine.getPosition();
   updatePlayhead(pos);
-  maybeDetectChord(ts || performance.now());
   if (!state.loopOn && state.buffer && pos >= state.buffer.duration - 0.02) {
     pausePlayback();
     state.engine.seek(0);
@@ -572,37 +568,30 @@ function loop(ts) {
   raf = requestAnimationFrame(loop);
 }
 
-// ---------- chord detection ----------
-// Detection runs on the RAF loop (throttled). A chord must persist a couple of
-// ticks before it's accepted (so single-frame guesses are ignored). Each new
-// confirmed chord is recorded at its time and drawn as small text on the
-// waveform, building up a chord track as you play through the song.
-let lastChordAt = 0;
-let chordPending = null, chordPendCount = 0, chordShown = null;
-function resetChordState() {
-  chordPending = null; chordPendCount = 0; chordShown = null;
-}
-function recordChord(label, t) {
-  const at = Math.max(0, t - 0.2); // approximate the chord's onset (confirmation lags)
-  if (state.chordEvents.some((e) => Math.abs(e.t - at) < 0.3)) return; // already labelled here
-  state.chordEvents.push({ t: at, label });
-  state.chordEvents.sort((a, b) => a.t - b.t);
-  wave.setState({ chords: state.chordEvents });
-}
-function maybeDetectChord(now) {
-  if (!state.chordsOn || !state.chordDetector) return;
-  if (now - lastChordAt < 120) return; // ~8 detections/sec
-  lastChordAt = now;
-  const c = state.chordDetector.detect();
-  const lab = c ? c.label : null;
-  if (!lab) { chordPending = null; chordPendCount = 0; return; }
-  if (lab === chordShown) { chordPending = null; chordPendCount = 0; return; }
-  if (lab === chordPending) chordPendCount++; else { chordPending = lab; chordPendCount = 1; }
-  if (chordPendCount >= 2) {
-    chordShown = lab;
-    recordChord(lab, state.engine ? state.engine.getPosition() : 0);
-    chordPending = null; chordPendCount = 0;
+// ---------- chord detection (offline) ----------
+// On load the whole mix is analyzed up front into a chord track, using the bass
+// stem (when present) as a root hint. It runs in chunks so the song stays
+// playable while labels fill in, and the result is cached per song so later
+// loads are instant.
+let chordToken = 0;
+async function analyzeChords(song) {
+  const myToken = ++chordToken;
+  if (song.chords && song.chords.length) {
+    state.chordEvents = song.chords;
+    if (state.chordsOn) wave.setState({ chords: state.chordEvents });
+    return;
   }
+  const bass = state.tracks.find((t) => /bass/.test(t.stem || '') && !/^no_/.test(t.stem || ''));
+  const an = makeChordAnalysis(state.buffer, { bassBuffer: bass ? bass.buffer : null });
+  while (true) {
+    const done = an.step(50);
+    if (myToken !== chordToken) return; // another song loaded — abandon this run
+    state.chordEvents = an.events();
+    if (state.chordsOn) wave.setState({ chords: state.chordEvents });
+    if (done) break;
+    await new Promise((r) => setTimeout(r, 0)); // yield so the song keeps playing
+  }
+  db.setSongChords(song.id, state.chordEvents);
 }
 function toggleChords(force) {
   state.chordsOn = force != null ? force : !state.chordsOn;
@@ -651,7 +640,6 @@ function pausePlayback() {
   releaseWakeLock();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
-  resetChordState(); // no signal while paused — clear the chord label
 }
 function stopPlayback() {
   if (state.playing) pausePlayback();

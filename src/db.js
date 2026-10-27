@@ -97,6 +97,17 @@ export function getSongByDriveBase(base) {
   return getSongs().then((rows) => rows.find((s) => s.driveBase && s.driveBase === base) || null);
 }
 
+// Cache the detected chord track for a song (local only — not synced; recomputed
+// per device). No updatedAt bump: it's derived data, not a user edit.
+export function setSongChords(id, chords) {
+  return tx('songs', 'readwrite', async (s) => {
+    const song = await reqP(s.get(id));
+    if (!song) return;
+    song.chords = chords;
+    s.put(song);
+  });
+}
+
 export function setMarkers(id, markers) {
   return tx('songs', 'readwrite', async (s) => {
     const song = await reqP(s.get(id));
