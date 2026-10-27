@@ -232,20 +232,31 @@ export class Waveform {
       c.fill();
     }
 
-    // chord labels — tiny text at the top, at each detection time. Dense when
-    // zoomed out (overlaps are thinned by pixel spacing), readable when zoomed in.
+    // chord labels at each detection time. Size scales with zoom — small when
+    // zoomed out so many fit, larger as you zoom in. Packed across a few stacked
+    // rows so a label drops only if it won't fit any row. A shadow keeps them
+    // legible over the waveform.
     if (this.chords && this.chords.length) {
-      c.font = '18px system-ui, -apple-system, sans-serif';
+      const fs = Math.max(9, Math.min(24, Math.round(9 + 3.2 * Math.log2(this.zoom))));
+      c.font = `${fs}px system-ui, -apple-system, sans-serif`;
       c.textBaseline = 'top';
-      c.fillStyle = '#cdd3df';
-      let lastRight = -Infinity;
+      c.fillStyle = '#eef1f7';
+      c.shadowColor = 'rgba(0,0,0,0.85)';
+      c.shadowBlur = 3;
+      const MAX_ROWS = 3, rowH = fs - 1, pad = 4;
+      const rowRight = [];
       for (const ev of this.chords) {
         if (ev.t < vStart || ev.t > vEnd) continue;
         const x = this._timeToX(ev.t);
-        if (x < lastRight + 2) continue; // skip overprinting when zoomed out
-        c.fillText(ev.label, x + 1, 1);
-        lastRight = x + c.measureText(ev.label).width + 1;
+        const wl = c.measureText(ev.label).width;
+        let row = -1;
+        for (let r = 0; r < rowRight.length; r++) { if (x >= rowRight[r] + pad) { row = r; break; } }
+        if (row < 0) { if (rowRight.length < MAX_ROWS) { row = rowRight.length; rowRight.push(-Infinity); } else continue; }
+        c.fillText(ev.label, x + 1, 1 + row * rowH);
+        rowRight[row] = x + wl + 1;
       }
+      c.shadowBlur = 0;
+      c.shadowColor = 'transparent';
     }
 
     // playhead

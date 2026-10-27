@@ -15,7 +15,7 @@ const SUFFIX = { maj: '', min: 'm', dim: '°' };
 
 // Bump when the labelling scheme or algorithm changes so cached chord tracks
 // (db.setSongChords) are recomputed instead of shown stale.
-export const CHORDS_VERSION = 2;
+export const CHORDS_VERSION = 3;
 
 const TEMPLATES = [];
 for (let root = 0; root < 12; root++) {
@@ -80,17 +80,34 @@ function fft(re, im) {
   }
 }
 
-// Collapse a per-window list of labels into chord-change events. A label must
-// hold for >= 2 consecutive windows to count, and only a *change* emits an
-// event (at the run's onset), so a held chord appears once.
+// Collapse a per-window list of labels into chord-change events. First a mode
+// filter (±R windows) removes single-window blips and fills single-window gaps,
+// which steadies the result; then a label must hold >= 2 consecutive (filtered)
+// windows to count, and only a *change* emits an event, so a held chord appears
+// once at its onset.
 function smoothEvents(raw, count) {
+  if (!count) return [];
+  const R = 2;
+  const filt = new Array(count);
+  for (let k = 0; k < count; k++) {
+    const tally = new Map();
+    for (let j = Math.max(0, k - R); j <= Math.min(count - 1, k + R); j++) {
+      const l = raw[j] ? raw[j].label : null;
+      const key = l == null ? '\u0000' : l;
+      tally.set(key, (tally.get(key) || 0) + 1);
+    }
+    let bestKey = '\u0000', bestN = -1;
+    for (const [key, n] of tally) if (n > bestN) { bestN = n; bestKey = key; }
+    filt[k] = bestKey === '\u0000' ? null : bestKey;
+  }
+
   const events = [];
   let shown = null, runLabel = null, runStart = 0, runLen = 0;
   for (let k = 0; k < count; k++) {
-    const r = raw[k];
-    const lab = r ? r.label : null;
+    const lab = filt[k];
+    const t = raw[k] ? raw[k].t : 0;
     if (lab === runLabel) runLen++;
-    else { runLabel = lab; runStart = r ? r.t : 0; runLen = 1; }
+    else { runLabel = lab; runStart = t; runLen = 1; }
     if (runLabel && runLen === 2 && runLabel !== shown) {
       shown = runLabel;
       events.push({ t: Math.max(0, runStart), label: runLabel });
