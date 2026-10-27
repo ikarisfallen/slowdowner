@@ -1,6 +1,7 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
 import { makeChordAnalysis, CHORDS_VERSION } from './chords.js';
+import { parseMusicXML, isCompressed } from './musicxml.js';
 import { Waveform, computePeaks } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
@@ -131,6 +132,7 @@ const state = {
   playing: false,
   chordsOn: (() => { try { return localStorage.getItem('chordsOn') !== '0'; } catch { return true; } })(),
   chordEvents: [], // [{ t, label }] detected chord track for the current song
+  chartExpanded: false,
 };
 
 let wave;
@@ -235,6 +237,17 @@ function render() {
           <button class="btn" id="deleteSelectedSections" disabled>Delete selected</button>
         </div>
         <div class="savedloops" id="savedloops"></div>
+      </div>
+    </div>
+
+    <div class="control" style="margin-top:2px">
+      <button class="disclosure" id="chartToggle"><span id="chartChev">▸</span> <span id="chartToggleLabel">Chord chart</span></button>
+      <div id="chartPanel" class="hidden">
+        <div id="chartBox"></div>
+        <div class="looprow" style="margin-top:8px">
+          <label class="btn" style="cursor:pointer"><input type="file" id="chartFile" accept=".musicxml,.xml,.mxl,application/xml,text/xml" hidden />＋ Add chart (MusicXML)</label>
+          <button class="btn ghost hidden" id="chartRemove">Remove chart</button>
+        </div>
       </div>
     </div>
 
@@ -519,6 +532,7 @@ async function loadSong(song, { autoplay = false } = {}) {
   syncControls();
   renderSavedLoops();
   renderMarkers();
+  renderChart();
   renderSongList();
   updatePlayhead(0);
   setMediaMetadata(song);
@@ -1073,6 +1087,58 @@ function clampMarkerLoop() {
   updateMarkerLoopReadout();
 }
 
+// ---------- chord chart (MusicXML) ----------
+function toggleChartPanel(force) {
+  state.chartExpanded = force != null ? force : !state.chartExpanded;
+  $('#chartPanel').classList.toggle('hidden', !state.chartExpanded);
+  const chev = $('#chartChev');
+  if (chev) chev.style.transform = state.chartExpanded ? 'rotate(90deg)' : 'none';
+  renderChart();
+}
+async function addChart(file) {
+  if (!state.song) { toast('Load a song first'); return; }
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (isCompressed(bytes)) { toast('Compressed .mxl isn’t supported — export as uncompressed MusicXML'); return; }
+    const chart = parseMusicXML(new TextDecoder().decode(bytes));
+    await db.setSongChart(state.song.id, chart);
+    state.song.chart = chart;
+    toggleChartPanel(true);
+    toast(`Chart added — ${chart.bars.length} bars`);
+  } catch (e) {
+    console.error(e);
+    toast('Could not read chart: ' + e.message);
+  }
+}
+function renderChart() {
+  const chart = state.song?.chart;
+  const label = $('#chartToggleLabel');
+  if (label) label.textContent = chart
+    ? `${state.chartExpanded ? 'Hide' : 'Show'} chord chart (${chart.bars.length} bars)`
+    : 'Chord chart';
+  $('#chartRemove')?.classList.toggle('hidden', !chart);
+  const box = $('#chartBox');
+  if (!box) return;
+  if (!chart) {
+    box.innerHTML = `<div class="muted" style="font-size:13px">No chart yet. Add a MusicXML file with chord symbols to see the progression.</div>`;
+    return;
+  }
+  const meta = `${chart.key || ''} · ${chart.beatsPerBar}/${chart.beatType}${chart.tempo ? ' · ♩=' + Math.round(chart.tempo) : ''}`;
+  let html = `<div class="chartmeta muted">${escapeHtml(meta)} &nbsp; <span style="opacity:.8">${escapeHtml(chart.vocab.join('  '))}</span></div><div class="chartgrid">`;
+  for (const b of chart.bars) {
+    const cls = ['chartbar'];
+    if (b.repeatStart) cls.push('rstart');
+    if (b.repeatEnd) cls.push('rend');
+    const marks = `${b.segno ? '<span class="barmark">Segno</span>' : ''}${b.coda ? '<span class="barmark">Coda</span>' : ''}`;
+    const content = b.chords.length
+      ? b.chords.map((c) => `<span>${escapeHtml(c.sym)}</span>`).join(' ')
+      : `<span class="held">${escapeHtml(b.held || '')}</span>`;
+    html += `<div class="${cls.join(' ')}"><div class="barnum">${b.number}${marks}</div><div class="barchords">${content}</div></div>`;
+  }
+  html += `</div>`;
+  box.innerHTML = html;
+}
+
 // ---------- library ----------
 async function importFiles(files) {
   ensureAudio();
@@ -1592,6 +1658,17 @@ function wireShell() {
   $('#sectionsToggle').onclick = () => toggleSectionsPanel();
   $('#sectionSelectAll').onchange = (e) => toggleSelectAllSections(e.target.checked);
   $('#deleteSelectedSections').onclick = () => deleteSelectedSections();
+
+  $('#chartToggle').onclick = () => toggleChartPanel();
+  const chartFile = $('#chartFile');
+  chartFile.addEventListener('change', async () => { if (chartFile.files[0]) await addChart(chartFile.files[0]); chartFile.value = ''; });
+  $('#chartRemove').onclick = async () => {
+    if (!state.song) return;
+    await db.setSongChart(state.song.id, null);
+    state.song.chart = null;
+    renderChart();
+    toast('Chart removed');
+  };
 
   $('#spanSelect').onchange = (e) => setSpan(Number(e.target.value));
   $('#markerLoopHere').onclick = () => markerLoopStart();

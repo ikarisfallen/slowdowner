@@ -97,6 +97,17 @@ export function getSongByDriveBase(base) {
   return getSongs().then((rows) => rows.find((s) => s.driveBase && s.driveBase === base) || null);
 }
 
+// Store a parsed chord chart (from a MusicXML import) on the song. `chart` is
+// null to clear it. Local only for now (not synced).
+export function setSongChart(id, chart) {
+  return tx('songs', 'readwrite', async (s) => {
+    const song = await reqP(s.get(id));
+    if (!song) return;
+    song.chart = chart;
+    s.put(song);
+  });
+}
+
 // Cache the detected chord track for a song (local only — not synced; recomputed
 // per device). No updatedAt bump: it's derived data, not a user edit.
 export function setSongChords(id, chords, version) {
