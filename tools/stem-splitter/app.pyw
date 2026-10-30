@@ -61,6 +61,8 @@ class SplitterApp(tk.Tk):
         self.q = queue.Queue()
         self.busy = False
         self.cur_action = ''
+        self.cur_stage = None
+        self.cur_pct = 0
         self.quality = tk.StringVar(value=DEFAULT_QUALITY)
         self._build()
         self._wire_dnd()
@@ -153,7 +155,8 @@ class SplitterApp(tk.Tk):
                 ok = splitter.split_file(
                     f, tmp, model=model, shifts=shifts,
                     log=lambda m: self.q.put(('log', m)),
-                    progress=lambda p: self.q.put(('progress', p)))
+                    progress=lambda p: self.q.put(('progress', p)),
+                    stage=lambda c, t: self.q.put(('stage', (c, t))))
                 if not ok:
                     self.q.put(('log', f'  !! could not split {f.name}'))
                     continue
@@ -179,6 +182,13 @@ class SplitterApp(tk.Tk):
             shutil.rmtree(tmp, ignore_errors=True)
             self.q.put(('busy', False))
 
+    def _update_status(self):
+        parts = [self.cur_action] if self.cur_action else []
+        if self.cur_stage and self.cur_stage[1]:
+            parts.append(f'Stage {self.cur_stage[0]}/{self.cur_stage[1]}')
+        parts.append(f'{self.cur_pct}%')
+        self.status.config(text=' — '.join(parts))
+
     def _drain(self):
         try:
             while True:
@@ -187,13 +197,19 @@ class SplitterApp(tk.Tk):
                     self._log(val)
                 elif kind == 'action':
                     self.cur_action = val
+                    self.cur_stage = None
+                    self.cur_pct = 0
                     self.status.config(text=val)
+                elif kind == 'stage':
+                    self.cur_stage = val  # (current, total)
+                    self._update_status()
                 elif kind == 'progress':
                     try:
                         self.pb['value'] = val
                     except tk.TclError:
                         pass
-                    self.status.config(text=f'{self.cur_action} — {val}%')
+                    self.cur_pct = val
+                    self._update_status()
                 elif kind == 'barmode':
                     if val == 'determinate':
                         self.pb.stop()

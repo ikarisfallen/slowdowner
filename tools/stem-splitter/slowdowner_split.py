@@ -61,7 +61,7 @@ def already_done(out_dir, base):
 
 
 def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
-               model=MODEL, shifts=0, log=print, progress=None):
+               model=MODEL, shifts=0, log=print, progress=None, stage=None):
     """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
     `model` is the Demucs model (htdemucs = standard/fast, htdemucs_ft = fine-tuned,
     cleaner, ~4x slower). `shifts` averages N shifted passes to reduce bleed (each
@@ -104,8 +104,13 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding='utf-8', errors='replace', bufsize=1)
         pct_re = re.compile(r'(\d{1,3})%')
+        bag_re = re.compile(r'bag of (\d+) models')
         recent = deque(maxlen=12)
-        token, last = '', -1
+        # Demucs runs (bag size) x (shifts) passes, one progress bar each. Count
+        # the bars so we can report "stage N of total".
+        total_stages = max(1, shifts)
+        stage_num, last = 0, -1
+        token = ''
         while True:
             ch = proc.stdout.read(1)
             if not ch:
@@ -113,14 +118,26 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
             if ch in '\r\n':
                 line = token.strip()
                 token = ''
-                if line:
-                    recent.append(line)
-                    m = pct_re.search(line)
-                    if m:
-                        p = min(100, int(m.group(1)))
-                        if p != last:
-                            last = p
-                            progress(p)
+                if not line:
+                    continue
+                recent.append(line)
+                mb = bag_re.search(line)
+                if mb:
+                    total_stages = int(mb.group(1)) * (shifts if shifts and shifts > 0 else 1)
+                    if stage:
+                        stage(0, total_stages)
+                    continue
+                m = pct_re.search(line)
+                if m:
+                    p = min(100, int(m.group(1)))
+                    if last < 0 or p + 15 < last:  # first bar, or a reset = new pass
+                        stage_num += 1
+                        if stage:
+                            stage(stage_num, total_stages)
+                        log(f'  pass {stage_num} of {total_stages}…')
+                    if p != last and progress:
+                        progress(p)
+                    last = p
             else:
                 token += ch
         proc.wait()
