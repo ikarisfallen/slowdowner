@@ -52,6 +52,7 @@ class SplitterApp(tk.Tk):
         self.minsize(460, 360)
         self.q = queue.Queue()
         self.busy = False
+        self.cur_action = ''
         self._build()
         self._wire_dnd()
         self.after(100, self._drain)
@@ -130,14 +131,19 @@ class SplitterApp(tk.Tk):
             for i, f in enumerate(files, 1):
                 f = Path(f)
                 base = f.stem
-                self.q.put(('status', f'[{i}/{len(files)}] splitting {f.name}'))
+                self.q.put(('action', f'[{i}/{len(files)}] Splitting {f.name}'))
                 self.q.put(('log', f'Splitting "{f.name}" (a few minutes on CPU)…'))
-                ok = splitter.split_file(f, tmp, log=lambda m: self.q.put(('log', m)))
+                self.q.put(('barmode', 'determinate'))
+                ok = splitter.split_file(
+                    f, tmp,
+                    log=lambda m: self.q.put(('log', m)),
+                    progress=lambda p: self.q.put(('progress', p)))
                 if not ok:
                     self.q.put(('log', f'  !! could not split {f.name}'))
                     continue
                 a, b = splitter.out_names(base)
-                self.q.put(('status', f'[{i}/{len(files)}] uploading {base}'))
+                self.q.put(('action', f'[{i}/{len(files)}] Uploading {base}'))
+                self.q.put(('barmode', 'indeterminate'))
                 self.q.put(('log', '  uploading stems to Google Drive…'))
                 try:
                     drive_upload.upload(svc, folder, str(tmp / a))
@@ -163,14 +169,33 @@ class SplitterApp(tk.Tk):
                 kind, val = self.q.get_nowait()
                 if kind == 'log':
                     self._log(val)
-                elif kind == 'status':
+                elif kind == 'action':
+                    self.cur_action = val
                     self.status.config(text=val)
+                elif kind == 'progress':
+                    try:
+                        self.pb['value'] = val
+                    except tk.TclError:
+                        pass
+                    self.status.config(text=f'{self.cur_action} — {val}%')
+                elif kind == 'barmode':
+                    if val == 'determinate':
+                        self.pb.stop()
+                        self.pb.config(mode='determinate')
+                        self.pb['value'] = 0
+                    else:
+                        self.pb.config(mode='indeterminate')
+                        self.pb.start(12)
                 elif kind == 'busy':
                     self.busy = val
                     if val:
+                        self.pb.config(mode='indeterminate')
                         self.pb.start(12)
                     else:
                         self.pb.stop()
+                        self.pb.config(mode='determinate')
+                        self.pb['value'] = 0
+                        self.status.config(text='Ready')
         except queue.Empty:
             pass
         self.after(100, self._drain)

@@ -27,10 +27,12 @@ Usage
 Setup: see README.md (needs Python, ffmpeg, and `pip install -r requirements.txt`).
 """
 import argparse
+import re
 import shutil
 import subprocess
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 AUDIO_EXT = {'.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.aiff', '.aif'}
@@ -58,9 +60,11 @@ def already_done(out_dir, base):
     return (out_dir / a).exists() and (out_dir / b).exists()
 
 
-def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=print):
+def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=print, progress=None):
     """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
-    `log` is a callback for progress/errors (so the GUI can show Demucs' output)."""
+    `log` is a callback for messages; `progress`, if given, is called with 0-100 as
+    Demucs separates (the GUI uses it to drive a progress bar). When `progress` is
+    None (CLI), Demucs draws its own progress bar on the console."""
     path = Path(path)
     out_dir = Path(out_dir)
     base = path.stem
@@ -82,14 +86,43 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=prin
         str(path),
     ]
     log(f'  separating "{path.name}" (this takes a few minutes on CPU)...')
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
-    if result.returncode != 0:
-        log(f'  !! demucs failed on {path.name} (exit {result.returncode}):')
-        out = (result.stderr or '') + (result.stdout or '')
-        tail = [ln for ln in out.strip().splitlines() if ln.strip()][-10:]
-        for ln in tail:
-            log('     ' + ln)
-        return False
+    if progress is None:
+        # CLI: let Demucs draw its own progress bar straight to the console.
+        rc = subprocess.run(cmd).returncode
+        if rc != 0:
+            log(f'  !! demucs failed on {path.name} (exit {rc})')
+            return False
+    else:
+        # GUI: stream Demucs' output, parse the % (tqdm updates with \r), and
+        # report it. Keep the last lines so we can show the error if it fails.
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding='utf-8', errors='replace', bufsize=1)
+        pct_re = re.compile(r'(\d{1,3})%')
+        recent = deque(maxlen=12)
+        token, last = '', -1
+        while True:
+            ch = proc.stdout.read(1)
+            if not ch:
+                break
+            if ch in '\r\n':
+                line = token.strip()
+                token = ''
+                if line:
+                    recent.append(line)
+                    m = pct_re.search(line)
+                    if m:
+                        p = min(100, int(m.group(1)))
+                        if p != last:
+                            last = p
+                            progress(p)
+            else:
+                token += ch
+        proc.wait()
+        if proc.returncode != 0:
+            log(f'  !! demucs failed on {path.name} (exit {proc.returncode}):')
+            for ln in recent:
+                log('     ' + ln)
+            return False
 
     src = tmp / MODEL / path.stem
     bass_src, nobass_src = src / 'bass.mp3', src / 'no_bass.mp3'
