@@ -1,0 +1,3 @@
+# Local stem separation. `demucs` pulls in torch/torchaudio (CPU build by default
+# on Windows PyPI wheels — no NVIDIA GPU needed).
+demucs>=4.0.1
