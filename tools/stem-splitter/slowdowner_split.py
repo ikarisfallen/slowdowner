@@ -60,11 +60,14 @@ def already_done(out_dir, base):
     return (out_dir / a).exists() and (out_dir / b).exists()
 
 
-def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=print, progress=None):
+def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
+               model=MODEL, shifts=0, log=print, progress=None):
     """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
-    `log` is a callback for messages; `progress`, if given, is called with 0-100 as
-    Demucs separates (the GUI uses it to drive a progress bar). When `progress` is
-    None (CLI), Demucs draws its own progress bar on the console."""
+    `model` is the Demucs model (htdemucs = standard/fast, htdemucs_ft = fine-tuned,
+    cleaner, ~4x slower). `shifts` averages N shifted passes to reduce bleed (each
+    one multiplies the time). `log` is a callback for messages; `progress`, if given,
+    is called with 0-100 as Demucs separates (the GUI uses it to drive a progress
+    bar). When `progress` is None (CLI), Demucs draws its own progress bar."""
     path = Path(path)
     out_dir = Path(out_dir)
     base = path.stem
@@ -81,11 +84,14 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=prin
         '--two-stems', 'bass',          # bass vs. everything-else
         '--mp3', '--mp3-bitrate', str(bitrate),
         '-d', device,                   # 'cpu' (or 'cuda' if you have an NVIDIA GPU)
-        '-n', MODEL,
+        '-n', model,
         '-o', str(tmp),
-        str(path),
     ]
-    log(f'  separating "{path.name}" (this takes a few minutes on CPU)...')
+    if shifts and shifts > 0:
+        cmd += ['--shifts', str(shifts)]
+    cmd.append(str(path))
+    log(f'  separating "{path.name}" with {model}'
+        + (f', shifts={shifts}' if shifts else '') + ' (this takes a while on CPU)...')
     if progress is None:
         # CLI: let Demucs draw its own progress bar straight to the console.
         rc = subprocess.run(cmd).returncode
@@ -124,7 +130,7 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=prin
                 log('     ' + ln)
             return False
 
-    src = tmp / MODEL / path.stem
+    src = tmp / model / path.stem
     bass_src, nobass_src = src / 'bass.mp3', src / 'no_bass.mp3'
     if not bass_src.exists() or not nobass_src.exists():
         log(f'  !! expected Demucs outputs not found in {src}')
@@ -214,9 +220,12 @@ def main():
     ap.add_argument('--replace', action='store_true', help='Delete a matching single-file song in --out so the stems replace it.')
     ap.add_argument('--bitrate', type=int, default=320, help='MP3 bitrate (default 320).')
     ap.add_argument('--device', default='cpu', help="Torch device: 'cpu' (default) or 'cuda'.")
+    ap.add_argument('--model', default=MODEL, help="Demucs model: htdemucs (fast) or htdemucs_ft (cleaner, ~4x slower).")
+    ap.add_argument('--shifts', type=int, default=0, help='Average N shifted passes to reduce bleed (slower).')
     args = ap.parse_args()
 
-    kw = dict(replace=args.replace, bitrate=args.bitrate, device=args.device)
+    kw = dict(replace=args.replace, bitrate=args.bitrate, device=args.device,
+              model=args.model, shifts=args.shifts)
 
     if args.watch:
         if not args.in_dir:

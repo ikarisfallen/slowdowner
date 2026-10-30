@@ -28,6 +28,14 @@ import drive_upload  # noqa: E402
 
 AUDIO_EXT = splitter.AUDIO_EXT
 
+# Quality presets -> (demucs model, shifts). Higher = cleaner / less bleed, slower.
+QUALITY = {
+    'Standard — fast': ('htdemucs', 0),
+    'High — fine-tuned (~4x slower)': ('htdemucs_ft', 0),
+    'Best — fine-tuned + 2 shifts (~8x slower)': ('htdemucs_ft', 2),
+}
+DEFAULT_QUALITY = 'Best — fine-tuned + 2 shifts (~8x slower)'
+
 
 def try_enable_dnd(root):
     """Best-effort native file drag-and-drop via tkinterdnd2.
@@ -53,6 +61,7 @@ class SplitterApp(tk.Tk):
         self.q = queue.Queue()
         self.busy = False
         self.cur_action = ''
+        self.quality = tk.StringVar(value=DEFAULT_QUALITY)
         self._build()
         self._wire_dnd()
         self.after(100, self._drain)
@@ -69,6 +78,12 @@ class SplitterApp(tk.Tk):
         ttk.Button(row, text='Choose files…', command=self._choose).pack(side='left')
         self.status = tk.Label(row, text='Ready', anchor='w')
         self.status.pack(side='left', padx=12)
+
+        qrow = tk.Frame(self)
+        qrow.pack(fill='x', padx=12, pady=(2, 0))
+        tk.Label(qrow, text='Quality:').pack(side='left')
+        ttk.Combobox(qrow, textvariable=self.quality, state='readonly', width=36,
+                     values=list(QUALITY.keys())).pack(side='left', padx=8)
 
         self.pb = ttk.Progressbar(self, mode='indeterminate')
         self.pb.pack(fill='x', padx=12, pady=6)
@@ -114,9 +129,10 @@ class SplitterApp(tk.Tk):
         if self.busy:
             messagebox.showinfo('Slowdowner', 'Still working — let the current batch finish first.')
             return
-        threading.Thread(target=self._work, args=(audio,), daemon=True).start()
+        model, shifts = QUALITY.get(self.quality.get(), QUALITY[DEFAULT_QUALITY])
+        threading.Thread(target=self._work, args=(audio, model, shifts), daemon=True).start()
 
-    def _work(self, files):
+    def _work(self, files, model, shifts):
         self.q.put(('busy', True))
         tmp = Path(tempfile.mkdtemp(prefix='slowdowner_'))
         try:
@@ -135,7 +151,7 @@ class SplitterApp(tk.Tk):
                 self.q.put(('log', f'Splitting "{f.name}" (a few minutes on CPU)…'))
                 self.q.put(('barmode', 'determinate'))
                 ok = splitter.split_file(
-                    f, tmp,
+                    f, tmp, model=model, shifts=shifts,
                     log=lambda m: self.q.put(('log', m)),
                     progress=lambda p: self.q.put(('progress', p)))
                 if not ok:

@@ -61,7 +61,10 @@ Double-click **`run_app.bat`** (or `app.pyw` if `.pyw` is associated with
 Drive folder. Then open Slowdowner (laptop or phone), sync, and the song appears
 with **No bass / Bass** tracks (volume + mute each).
 
-The first song you split also downloads the Demucs model (~80 MB), once.
+**Quality** dropdown: *Standard* (fast) · *High* = the fine-tuned `htdemucs_ft`
+model (cleaner, less bleed, ~4× slower) · *Best* = fine-tuned + 2 shifts (~8× slower).
+Defaults to **Best**. The fine-tuned model downloads (~300 MB) the first time you
+use it; the standard model (~80 MB) downloads on first use too.
 
 ---
 
@@ -88,6 +91,8 @@ the top and double-click.
 | `--replace` | also delete a matching single-file song in `--out` so the stems replace it |
 | `--bitrate <n>` | MP3 bitrate (default 320) |
 | `--device cuda` | use an NVIDIA GPU instead of CPU |
+| `--model htdemucs_ft` | fine-tuned model — cleaner isolation / less bleed (~4× slower) |
+| `--shifts N` | average N shifted passes to reduce bleed (each multiplies the time) |
 
 ## Files
 - `app.pyw` — the drag-and-drop GUI (split + Drive upload)
