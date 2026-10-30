@@ -36,7 +36,6 @@ export class Waveform {
     this.loop = null; // { start, end }
     this.savedLoops = [];
     this.markers = [];
-    this.chords = []; // [{ t, label }] detected chord changes, drawn as small text
     this.zoom = 1; // 1 = whole song; >1 = zoomed in
     this.viewStart = 0; // left edge of the view, in seconds
     this._drag = null;
@@ -71,7 +70,7 @@ export class Waveform {
     this.viewStart = 0;
     this.draw();
   }
-  setState({ position, loop, savedLoops, markers, chords }) {
+  setState({ position, loop, savedLoops, markers }) {
     if (position != null) {
       this.position = position;
       this._follow(); // keep the playhead in view when zoomed
@@ -79,7 +78,6 @@ export class Waveform {
     if (loop !== undefined) this.loop = loop;
     if (savedLoops) this.savedLoops = savedLoops;
     if (markers !== undefined) this.markers = markers || [];
-    if (chords !== undefined) this.chords = chords || [];
     this.draw();
   }
 
@@ -230,32 +228,6 @@ export class Waveform {
       c.lineTo(x, 8);
       c.closePath();
       c.fill();
-    }
-
-    // Root-note guideposts (one per bar, on the downbeat). Size scales with zoom
-    // — small when zoomed out so many fit, larger as you zoom in. Packed across a
-    // few stacked rows; a shadow keeps them legible over the waveform.
-    if (this.chords && this.chords.length) {
-      const fs = Math.max(9, Math.min(24, Math.round(9 + 3.2 * Math.log2(this.zoom))));
-      c.font = `${fs}px system-ui, -apple-system, sans-serif`;
-      c.textBaseline = 'top';
-      c.fillStyle = '#eef1f7';
-      c.shadowColor = 'rgba(0,0,0,0.85)';
-      c.shadowBlur = 3;
-      const MAX_ROWS = 3, rowH = fs - 1, pad = 4;
-      const rowRight = [];
-      for (const ev of this.chords) {
-        if (ev.t < vStart || ev.t > vEnd) continue;
-        const x = this._timeToX(ev.t);
-        const wl = c.measureText(ev.label).width;
-        let row = -1;
-        for (let r = 0; r < rowRight.length; r++) { if (x >= rowRight[r] + pad) { row = r; break; } }
-        if (row < 0) { if (rowRight.length < MAX_ROWS) { row = rowRight.length; rowRight.push(-Infinity); } else continue; }
-        c.fillText(ev.label, x + 1, 1 + row * rowH);
-        rowRight[row] = x + wl + 1;
-      }
-      c.shadowBlur = 0;
-      c.shadowColor = 'transparent';
     }
 
     // playhead

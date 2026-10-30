@@ -1,7 +1,5 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { makeChordAnalysis, CHORDS_VERSION } from './chords.js';
-import { parseMusicXML, isCompressed } from './musicxml.js';
 import { Waveform, computePeaks } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
@@ -130,10 +128,6 @@ const state = {
   pitch: 0,
   volume: 1, // output gain multiplier (boost quiet stems)
   playing: false,
-  chordsOn: (() => { try { return localStorage.getItem('chordsOn') !== '0'; } catch { return true; } })(),
-  chordEvents: [], // [{ t, label }] detected bass-root fallback for the current song
-  chartGrid: null, // { downbeats:[t], beatPeriod, beatsPerBar } detected beat/bar grid
-  chartExpanded: false,
 };
 
 let wave;
@@ -170,7 +164,6 @@ function render() {
       <button class="btn" id="setB" title="Set loop end (B)">]</button>
       <button class="btn ghost" id="clearLoop" title="Clear loop">✕</button>
       <button class="btn" id="saveLoop" title="Save section">＋ [ ]</button>
-      <button class="btn" id="chordToggle" title="Show the detected chord over the waveform">♪ Chords</button>
       <span style="flex:1"></span>
       <span class="mono muted" id="zoomLevel" title="Zoom level (1× = whole song)" style="font-size:13px; min-width:34px; text-align:right">1×</span>
       <button class="btn" id="zoomOut" title="Zoom out">−</button>
@@ -238,23 +231,6 @@ function render() {
           <button class="btn" id="deleteSelectedSections" disabled>Delete selected</button>
         </div>
         <div class="savedloops" id="savedloops"></div>
-      </div>
-    </div>
-
-    <div class="control" style="margin-top:2px">
-      <button class="disclosure" id="chartToggle"><span id="chartChev">▸</span> <span id="chartToggleLabel">Chord chart</span></button>
-      <div id="chartPanel" class="hidden">
-        <div id="chartBox"></div>
-        <div class="looprow hidden" id="chartAlign" style="margin-top:8px; align-items:center">
-          <span class="muted" style="font-size:12px">Align to audio:</span>
-          <button class="btn" id="chartShiftBack" title="Shift the form back one bar">◀ bar</button>
-          <button class="btn" id="chartShiftFwd" title="Shift the form forward one bar">bar ▶</button>
-          <button class="btn" id="chartAnchorHere" title="Set bar 1 of the form at the playhead">Bar 1 = playhead</button>
-        </div>
-        <div class="looprow" style="margin-top:8px">
-          <label class="btn" style="cursor:pointer"><input type="file" id="chartFile" accept=".musicxml,.xml,.mxl,application/xml,text/xml" hidden />＋ Add chart (MusicXML)</label>
-          <button class="btn ghost hidden" id="chartRemove">Remove chart</button>
-        </div>
       </div>
     </div>
 
@@ -517,9 +493,6 @@ async function loadSong(song, { autoplay = false } = {}) {
     return; // don't rethrow — avoid an uncaught rejection
   }
   renderTrackMix();
-  state.chordEvents = [];
-  wave.setState({ chords: [] });
-  analyzeChords(song); // offline, chunked, cached — fills in the chord track
 
   // loops
   state.loops = await db.getLoops(song.id);
@@ -539,7 +512,6 @@ async function loadSong(song, { autoplay = false } = {}) {
   syncControls();
   renderSavedLoops();
   renderMarkers();
-  renderChart();
   renderSongList();
   updatePlayhead(0);
   setMediaMetadata(song);
@@ -587,102 +559,6 @@ function loop(ts) {
     return;
   }
   raf = requestAnimationFrame(loop);
-}
-
-// ---------- chord detection (offline) ----------
-// On load the whole mix is analyzed up front into a chord track, using the bass
-// stem (when present) as a root hint. It runs in chunks so the song stays
-// playable while labels fill in, and the result is cached per song so later
-// loads are instant.
-let chordToken = 0;
-async function analyzeChords(song) {
-  const myToken = ++chordToken;
-  // Beat grid from the no_bass rhythm (used to lay a chart onto the bars); the
-  // detected bass roots are only a rough fallback when there's no chart.
-  const bass = state.tracks.find((t) => /bass/.test(t.stem || '') && !/^no_/.test(t.stem || ''));
-  const nobass = state.tracks.find((t) => /^no_?bass/.test(t.stem || ''));
-  const hasChart = !!song.chart;
-  const btn = $('#chordToggle');
-  if (btn) {
-    btn.disabled = !bass && !hasChart;
-    btn.title = hasChart ? 'Show the chord chart over the waveform'
-      : bass ? 'Show the detected root notes over the waveform' : 'Needs a bass stem or a chord chart';
-  }
-  if (!bass && !hasChart) { state.chordEvents = []; state.chartGrid = null; wave.setState({ chords: [] }); return; }
-
-  if (song.chordsVer === CHORDS_VERSION && song.chordGrid) {
-    state.chordEvents = song.chords || [];
-    state.chartGrid = song.chordGrid;
-    refreshChordOverlay();
-    return;
-  }
-  const rhythmBuf = (nobass && nobass.buffer) || (bass && bass.buffer) || state.buffer;
-  const an = makeChordAnalysis(rhythmBuf, { bassBuffer: bass ? bass.buffer : null });
-  while (true) {
-    const done = an.step(80);
-    if (myToken !== chordToken) return; // another song loaded — abandon this run
-    if (done) { state.chordEvents = an.events(); state.chartGrid = an.grid(); refreshChordOverlay(); break; }
-    if (!hasChart) { state.chordEvents = an.events(); refreshChordOverlay(); } // progressive roots when no chart
-    await new Promise((r) => setTimeout(r, 0)); // yield so the song keeps playing
-  }
-  db.setSongChords(song.id, state.chordEvents, state.chartGrid, CHORDS_VERSION);
-}
-
-// Lay the attached chart's chords onto the detected bars (looping the form), so
-// the real chords ride the waveform instead of the noisy bass-root guesses.
-function buildChartOverlay() {
-  const chart = state.song?.chart;
-  const grid = state.chartGrid;
-  if (!chart || !grid?.downbeats?.length) return [];
-  const dbs = grid.downbeats;
-  const bars = chart.bars;
-  const formLen = bars.length;
-  const anchor = chart.anchor || 0;
-  const bpb = chart.beatsPerBar || 4;
-  const out = [];
-  for (let j = 0; j < dbs.length; j++) {
-    const barStart = dbs[j];
-    const nextStart = j + 1 < dbs.length ? dbs[j + 1] : barStart + grid.beatPeriod * bpb;
-    const barDur = nextStart - barStart;
-    const ci = (((j - anchor) % formLen) + formLen) % formLen;
-    const bar = bars[ci];
-    const chords = bar.chords.length ? bar.chords : (bar.held ? [{ beat: 1, sym: bar.held }] : []);
-    for (const c of chords) {
-      if (!c.sym) continue;
-      out.push({ t: barStart + ((c.beat - 1) / bpb) * barDur, label: c.sym });
-    }
-  }
-  return out;
-}
-function refreshChordOverlay() {
-  if (!state.chordsOn) { wave.setState({ chords: [] }); return; }
-  const chart = state.song?.chart;
-  if (chart && state.chartGrid?.downbeats?.length) wave.setState({ chords: buildChartOverlay() });
-  else wave.setState({ chords: state.chordEvents || [] });
-}
-function setChartAnchorHere() {
-  const chart = state.song?.chart, grid = state.chartGrid;
-  if (!chart || !grid?.downbeats?.length) return;
-  const t = state.engine ? state.engine.getPosition() : 0;
-  let best = 0, bd = Infinity;
-  grid.downbeats.forEach((dt, i) => { const d = Math.abs(dt - t); if (d < bd) { bd = d; best = i; } });
-  chart.anchor = best;
-  db.setSongChart(state.song.id, chart);
-  refreshChordOverlay();
-  toast('Bar 1 aligned to playhead');
-}
-function shiftChart(d) {
-  const chart = state.song?.chart;
-  if (!chart) return;
-  chart.anchor = (chart.anchor || 0) + d;
-  db.setSongChart(state.song.id, chart);
-  refreshChordOverlay();
-}
-function toggleChords(force) {
-  state.chordsOn = force != null ? force : !state.chordsOn;
-  try { localStorage.setItem('chordsOn', state.chordsOn ? '1' : '0'); } catch {}
-  $('#chordToggle')?.classList.toggle('on', state.chordsOn);
-  refreshChordOverlay();
 }
 
 async function togglePlay() {
@@ -1146,60 +1022,6 @@ function clampMarkerLoop() {
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);
   if (state.markers.length < state.span + 1) state.markerLoopActive = false;
   updateMarkerLoopReadout();
-}
-
-// ---------- chord chart (MusicXML) ----------
-function toggleChartPanel(force) {
-  state.chartExpanded = force != null ? force : !state.chartExpanded;
-  $('#chartPanel').classList.toggle('hidden', !state.chartExpanded);
-  const chev = $('#chartChev');
-  if (chev) chev.style.transform = state.chartExpanded ? 'rotate(90deg)' : 'none';
-  renderChart();
-}
-async function addChart(file) {
-  if (!state.song) { toast('Load a song first'); return; }
-  try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (isCompressed(bytes)) { toast('Compressed .mxl isn’t supported — export as uncompressed MusicXML'); return; }
-    const chart = parseMusicXML(new TextDecoder().decode(bytes));
-    await db.setSongChart(state.song.id, chart);
-    state.song.chart = chart;
-    toggleChartPanel(true);
-    await analyzeChords(state.song); // ensure a beat grid + show the chart on the waveform
-    toast(`Chart added — ${chart.bars.length} bars`);
-  } catch (e) {
-    console.error(e);
-    toast('Could not read chart: ' + e.message);
-  }
-}
-function renderChart() {
-  const chart = state.song?.chart;
-  const label = $('#chartToggleLabel');
-  if (label) label.textContent = chart
-    ? `${state.chartExpanded ? 'Hide' : 'Show'} chord chart (${chart.bars.length} bars)`
-    : 'Chord chart';
-  $('#chartRemove')?.classList.toggle('hidden', !chart);
-  $('#chartAlign')?.classList.toggle('hidden', !chart);
-  const box = $('#chartBox');
-  if (!box) return;
-  if (!chart) {
-    box.innerHTML = `<div class="muted" style="font-size:13px">No chart yet. Add a MusicXML file with chord symbols to see the progression.</div>`;
-    return;
-  }
-  const meta = `${chart.key || ''} · ${chart.beatsPerBar}/${chart.beatType}${chart.tempo ? ' · ♩=' + Math.round(chart.tempo) : ''}`;
-  let html = `<div class="chartmeta muted">${escapeHtml(meta)} &nbsp; <span style="opacity:.8">${escapeHtml(chart.vocab.join('  '))}</span></div><div class="chartgrid">`;
-  for (const b of chart.bars) {
-    const cls = ['chartbar'];
-    if (b.repeatStart) cls.push('rstart');
-    if (b.repeatEnd) cls.push('rend');
-    const marks = `${b.segno ? '<span class="barmark">Segno</span>' : ''}${b.coda ? '<span class="barmark">Coda</span>' : ''}`;
-    const content = b.chords.length
-      ? b.chords.map((c) => `<span>${escapeHtml(c.sym)}</span>`).join(' ')
-      : `<span class="held">${escapeHtml(b.held || '')}</span>`;
-    html += `<div class="${cls.join(' ')}"><div class="barnum">${b.number}${marks}</div><div class="barchords">${content}</div></div>`;
-  }
-  html += `</div>`;
-  box.innerHTML = html;
 }
 
 // ---------- library ----------
@@ -1702,8 +1524,6 @@ function wireShell() {
   $('#zoomIn').onclick = () => { wave.zoomBy(2); updateZoomReadout(); };
   $('#zoomOut').onclick = () => { wave.zoomBy(0.5); updateZoomReadout(); };
   $('#zoomFit').onclick = () => { wave.fit(); updateZoomReadout(); };
-  $('#chordToggle').onclick = () => toggleChords();
-  $('#chordToggle').classList.toggle('on', state.chordsOn);
   $('#loopToggle').onclick = () => toggleLoop();
   $('#setA').onclick = () => setLoopPoint('A');
   $('#setB').onclick = () => setLoopPoint('B');
@@ -1721,21 +1541,6 @@ function wireShell() {
   $('#sectionsToggle').onclick = () => toggleSectionsPanel();
   $('#sectionSelectAll').onchange = (e) => toggleSelectAllSections(e.target.checked);
   $('#deleteSelectedSections').onclick = () => deleteSelectedSections();
-
-  $('#chartToggle').onclick = () => toggleChartPanel();
-  const chartFile = $('#chartFile');
-  chartFile.addEventListener('change', async () => { if (chartFile.files[0]) await addChart(chartFile.files[0]); chartFile.value = ''; });
-  $('#chartRemove').onclick = async () => {
-    if (!state.song) return;
-    await db.setSongChart(state.song.id, null);
-    state.song.chart = null;
-    renderChart();
-    await analyzeChords(state.song); // back to the detected-root fallback / button state
-    toast('Chart removed');
-  };
-  $('#chartShiftBack').onclick = () => shiftChart(-1);
-  $('#chartShiftFwd').onclick = () => shiftChart(1);
-  $('#chartAnchorHere').onclick = () => setChartAnchorHere();
 
   $('#spanSelect').onchange = (e) => setSpan(Number(e.target.value));
   $('#markerLoopHere').onclick = () => markerLoopStart();
@@ -1809,9 +1614,6 @@ if (import.meta.env.DEV) {
     toggleLoop,
     loadSong,
     importFiles,
-    analyzeChords,
-    buildChartOverlay,
-    refreshChordOverlay,
     buildManifest,
     applyManifest,
     db,
