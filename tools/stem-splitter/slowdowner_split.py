@@ -38,6 +38,17 @@ MODEL = 'htdemucs'  # Demucs v4 default (4-source model; we keep bass vs. the re
 SUFFIX = '_split_by_lalalai'
 
 
+def _python_exe():
+    """A console python.exe to run Demucs with. The GUI runs under pythonw.exe,
+    which has no console — Demucs/tqdm misbehave there, so prefer python.exe."""
+    exe = sys.executable
+    if exe.lower().endswith('pythonw.exe'):
+        cand = Path(exe).with_name('python.exe')
+        if cand.exists():
+            return str(cand)
+    return exe
+
+
 def out_names(base):
     return (f'{base}_bass{SUFFIX}.mp3', f'{base}_no_bass{SUFFIX}.mp3')
 
@@ -47,13 +58,14 @@ def already_done(out_dir, base):
     return (out_dir / a).exists() and (out_dir / b).exists()
 
 
-def split_file(path, out_dir, replace=False, bitrate=320, device='cpu'):
-    """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success."""
+def split_file(path, out_dir, replace=False, bitrate=320, device='cpu', log=print):
+    """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
+    `log` is a callback for progress/errors (so the GUI can show Demucs' output)."""
     path = Path(path)
     out_dir = Path(out_dir)
     base = path.stem
     if already_done(out_dir, base):
-        print(f'  skip (already split): {base}')
+        log(f'  skip (already split): {base}')
         return True
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +73,7 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu'):
     tmp.mkdir(parents=True, exist_ok=True)
 
     cmd = [
-        sys.executable, '-m', 'demucs',
+        _python_exe(), '-m', 'demucs',
         '--two-stems', 'bass',          # bass vs. everything-else
         '--mp3', '--mp3-bitrate', str(bitrate),
         '-d', device,                   # 'cpu' (or 'cuda' if you have an NVIDIA GPU)
@@ -69,16 +81,20 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu'):
         '-o', str(tmp),
         str(path),
     ]
-    print(f'  separating "{path.name}" (this takes a few minutes on CPU)...')
-    result = subprocess.run(cmd)
+    log(f'  separating "{path.name}" (this takes a few minutes on CPU)...')
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode != 0:
-        print(f'  !! demucs failed on {path.name} (exit {result.returncode})')
+        log(f'  !! demucs failed on {path.name} (exit {result.returncode}):')
+        out = (result.stderr or '') + (result.stdout or '')
+        tail = [ln for ln in out.strip().splitlines() if ln.strip()][-10:]
+        for ln in tail:
+            log('     ' + ln)
         return False
 
     src = tmp / MODEL / path.stem
     bass_src, nobass_src = src / 'bass.mp3', src / 'no_bass.mp3'
     if not bass_src.exists() or not nobass_src.exists():
-        print(f'  !! expected Demucs outputs not found in {src}')
+        log(f'  !! expected Demucs outputs not found in {src}')
         return False
 
     bass_dst, nobass_dst = out_names(base)
@@ -98,9 +114,9 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu'):
             orig = out_dir / f'{base}{ext}'
             if orig.exists():
                 orig.unlink()
-                print(f'  removed original single: {orig.name}')
+                log(f'  removed original single: {orig.name}')
 
-    print(f'  ✓ {base}  ->  {bass_dst} + {nobass_dst}')
+    log(f'  ✓ {base}  ->  {bass_dst} + {nobass_dst}')
     return True
 
 

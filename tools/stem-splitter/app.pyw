@@ -132,7 +132,7 @@ class SplitterApp(tk.Tk):
                 base = f.stem
                 self.q.put(('status', f'[{i}/{len(files)}] splitting {f.name}'))
                 self.q.put(('log', f'Splitting "{f.name}" (a few minutes on CPU)…'))
-                ok = splitter.split_file(f, tmp)
+                ok = splitter.split_file(f, tmp, log=lambda m: self.q.put(('log', m)))
                 if not ok:
                     self.q.put(('log', f'  !! could not split {f.name}'))
                     continue
