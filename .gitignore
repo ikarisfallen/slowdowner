@@ -6,3 +6,7 @@ dist-ssr/
 .vite/
 .DS_Store
 npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
