@@ -1,3 +1,10 @@
 # Local stem separation. `demucs` pulls in torch/torchaudio (CPU build by default
-# on Windows PyPI wheels — no NVIDIA GPU needed).
+# on Windows PyPI wheels — no NVIDIA GPU needed). numpy is a demucs dep but is
+# listed explicitly because some brand-new Python versions skip it.
 demucs>=4.0.1
+numpy
+
+# Drag-and-drop GUI app (app.pyw) + direct Google Drive upload.
+tkinterdnd2>=0.4.0
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2

@@ -10,3 +10,5 @@ npm-debug.log*
 # Python
 __pycache__/
 *.pyc
+tools/stem-splitter/client_secrets.json
+tools/stem-splitter/token.json
