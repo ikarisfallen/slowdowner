@@ -1,12 +1,15 @@
 #!/usr/bin/env pythonw
-"""Slowdowner Stem Splitter — drag-and-drop Windows app.
+"""Slowdowner Stem Splitter — Windows app.
 
-Drop MP3/FLAC files on the window → each is split into bass / no_bass with Demucs
+Pick (or drop) MP3/FLAC files → each is split into bass / no_bass with Demucs
 (locally, on CPU) → the two stems upload straight to your Slowdowner folder in
 Google Drive, named so Slowdowner groups them into one multi-track song.
 
-Run by double-clicking run_app.bat (or this file, if .pyw is associated with
-pythonw). Setup: see README.md.
+Click the box to choose files. Drag-and-drop also works *if* the tkinterdnd2
+native library is allowed to load (some locked-down machines block it — the app
+just uses the file picker instead, no problem).
+
+Run by double-clicking run_app.bat. Setup: see README.md.
 """
 import queue
 import shutil
@@ -23,37 +26,42 @@ sys.path.insert(0, str(HERE))
 import slowdowner_split as splitter  # noqa: E402
 import drive_upload  # noqa: E402
 
-try:
-    from tkinterdnd2 import TkinterDnD, DND_FILES
-    BaseTk = TkinterDnD.Tk
-    HAS_DND = True
-except Exception:
-    BaseTk = tk.Tk
-    HAS_DND = False
-
 AUDIO_EXT = splitter.AUDIO_EXT
 
 
-class SplitterApp(BaseTk):
+def try_enable_dnd(root):
+    """Best-effort native file drag-and-drop via tkinterdnd2.
+
+    Returns the DND_FILES constant if it loads, else None. On machines where the
+    tkdnd DLL is missing or blocked (Application Control / Smart App Control),
+    this quietly returns None and the app falls back to the file picker.
+    """
+    try:
+        from tkinterdnd2 import TkinterDnD, DND_FILES
+        TkinterDnD._require(root)  # loads the native tkdnd library; may raise/popup
+        return DND_FILES
+    except Exception:
+        return None
+
+
+class SplitterApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Slowdowner Stem Splitter')
-        self.geometry('580x460')
+        self.geometry('580x470')
         self.minsize(460, 360)
         self.q = queue.Queue()
         self.busy = False
         self._build()
+        self._wire_dnd()
         self.after(100, self._drain)
 
     def _build(self):
-        pad = dict(padx=12, pady=(10, 4))
-        msg = 'Drop MP3 / FLAC files here' if HAS_DND else 'Click "Choose files…" below'
-        self.drop = tk.Label(self, text=msg, relief='ridge', bd=2, height=5,
-                             bg='#eef1f7', fg='#333', font=('Segoe UI', 11))
-        self.drop.pack(fill='x', **pad)
-        if HAS_DND:
-            self.drop.drop_target_register(DND_FILES)
-            self.drop.dnd_bind('<<Drop>>', self._on_drop)
+        self.drop = tk.Label(self, text='Click here to choose a song', relief='ridge',
+                             bd=2, height=5, bg='#eef1f7', fg='#333',
+                             font=('Segoe UI', 12), cursor='hand2')
+        self.drop.pack(fill='x', padx=12, pady=(10, 4))
+        self.drop.bind('<Button-1>', lambda e: self._choose())
 
         row = tk.Frame(self)
         row.pack(fill='x', padx=12)
@@ -64,13 +72,20 @@ class SplitterApp(BaseTk):
         self.pb = ttk.Progressbar(self, mode='indeterminate')
         self.pb.pack(fill='x', padx=12, pady=6)
 
-        self.log = tk.Text(self, height=14, state='disabled', wrap='word',
-                           font=('Consolas', 9))
+        self.log = tk.Text(self, height=14, state='disabled', wrap='word', font=('Consolas', 9))
         self.log.pack(fill='both', expand=True, padx=12, pady=(4, 12))
-        self._log('Drop a song to split it and upload the stems to Google Drive.')
-        if not HAS_DND:
-            self._log('(Drag-and-drop module not installed — use "Choose files…". '
-                      'To enable drops: pip install tkinterdnd2)')
+        self._log('Choose a song to split it and upload the stems to Google Drive.')
+
+    def _wire_dnd(self):
+        self.dnd_files = try_enable_dnd(self)
+        if not self.dnd_files:
+            return
+        try:
+            self.drop.drop_target_register(self.dnd_files)
+            self.drop.dnd_bind('<<Drop>>', self._on_drop)
+            self.drop.config(text='Drop songs here, or click to choose')
+        except Exception:
+            self.dnd_files = None
 
     def _log(self, msg):
         self.log.config(state='normal')
@@ -79,6 +94,8 @@ class SplitterApp(BaseTk):
         self.log.config(state='disabled')
 
     def _choose(self):
+        if self.busy:
+            return
         files = filedialog.askopenfilenames(
             title='Choose audio files',
             filetypes=[('Audio', '*.mp3 *.flac *.wav *.m4a *.aac *.ogg'), ('All files', '*.*')])
