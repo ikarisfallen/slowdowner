@@ -61,10 +61,19 @@ Double-click **`run_app.bat`** (or `app.pyw` if `.pyw` is associated with
 Drive folder. Then open Slowdowner (laptop or phone), sync, and the song appears
 with **No bass / Bass** tracks (volume + mute each).
 
-**Quality** dropdown: *Standard* (fast) · *High* = the fine-tuned `htdemucs_ft`
-model (cleaner, less bleed, ~4× slower) · *Best* = fine-tuned + 2 shifts (~8× slower).
-Defaults to **Best**. The fine-tuned model downloads (~300 MB) the first time you
-use it; the standard model (~80 MB) downloads on first use too.
+**Quality** dropdown:
+- *Standard* — `htdemucs`, fast.
+- *High* — fine-tuned `htdemucs_ft` (cleaner, ~4× slower).
+- *Best* — `htdemucs_ft` + 2 shifts + overlap 0.5 (~10× slower).
+- *Max* — **ensemble** of `htdemucs_ft` + `hdemucs_mmi`, averaged, + shifts/overlap
+  (slowest; least bleed). **Default.**
+
+**Clean bass** checkbox: low-passes the bass stem at the given cutoff (default
+2000 Hz) to strip high-frequency bleed (cymbals, sibilance). Great for *hearing*
+the bassline; it dulls the bass's top end, so it's a trade-off — leave it off for
+a full-range stem. Applies on top of any quality preset.
+
+Models download on first use (standard ~80 MB, fine-tuned ~300 MB, mmi ~once).
 
 ---
 
@@ -92,6 +101,9 @@ the top and double-click.
 | `--bitrate <n>` | MP3 bitrate (default 320) |
 | `--device cuda` | use an NVIDIA GPU instead of CPU |
 | `--model htdemucs_ft` | fine-tuned model — cleaner isolation / less bleed (~4× slower) |
+| `--models htdemucs_ft,hdemucs_mmi` | ensemble (averaged) — least bleed, slowest |
+| `--overlap 0.5` | chunk overlap (default 0.25; higher = cleaner, slower) |
+| `--lowpass 2000` | low-pass the bass stem at N Hz to cut high-freq bleed (0 = off) |
 | `--shifts N` | average N shifted passes to reduce bleed (each multiplies the time) |
 
 ## Files

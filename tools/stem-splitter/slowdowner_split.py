@@ -35,6 +35,14 @@ import time
 from collections import deque
 from pathlib import Path
 
+# Make console output UTF-8-safe (Windows consoles default to cp1252 and choke on
+# characters like ✓/…). Guarded: under pythonw (the GUI) stdout can be None.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 AUDIO_EXT = {'.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.aiff', '.aif'}
 MODEL = 'htdemucs'  # Demucs v4 default (4-source model; we keep bass vs. the rest)
 SUFFIX = '_split_by_lalalai'
@@ -60,108 +68,153 @@ def already_done(out_dir, base):
     return (out_dir / a).exists() and (out_dir / b).exists()
 
 
-def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
-               model=MODEL, shifts=0, log=print, progress=None, stage=None):
-    """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
-    `model` is the Demucs model (htdemucs = standard/fast, htdemucs_ft = fine-tuned,
-    cleaner, ~4x slower). `shifts` averages N shifted passes to reduce bleed (each
-    one multiplies the time). `log` is a callback for messages; `progress`, if given,
-    is called with 0-100 as Demucs separates (the GUI uses it to drive a progress
-    bar). When `progress` is None (CLI), Demucs draws its own progress bar."""
-    path = Path(path)
-    out_dir = Path(out_dir)
-    base = path.stem
-    if already_done(out_dir, base):
-        log(f'  skip (already split): {base}')
-        return True
+def _stream(cmd, log, progress, stage, shifts=0):
+    """Run cmd, stream output, drive progress/stage from the tqdm % and 'bag of N
+    models' line. Returns (returncode, recent_lines)."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, encoding='utf-8', errors='replace', bufsize=1)
+    pct_re = re.compile(r'(\d{1,3})%')
+    bag_re = re.compile(r'bag of (\d+) models')
+    recent = deque(maxlen=12)
+    total_stages = max(1, shifts)
+    stage_num, last = 0, -1
+    token = ''
+    while True:
+        ch = proc.stdout.read(1)
+        if not ch:
+            break
+        if ch in '\r\n':
+            line = token.strip()
+            token = ''
+            if not line:
+                continue
+            recent.append(line)
+            mb = bag_re.search(line)
+            if mb:
+                total_stages = int(mb.group(1)) * (shifts if shifts and shifts > 0 else 1)
+                if stage:
+                    stage(0, total_stages)
+                continue
+            m = pct_re.search(line)
+            if m:
+                p = min(100, int(m.group(1)))
+                if last < 0 or p + 15 < last:  # first bar, or a reset = new pass
+                    stage_num += 1
+                    if stage:
+                        stage(stage_num, total_stages)
+                    log(f'  pass {stage_num} of {total_stages}…')
+                if p != last and progress:
+                    progress(p)
+                last = p
+        else:
+            token += ch
+    proc.wait()
+    return proc.returncode, recent
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    tmp = out_dir / '.tmp_demucs'
-    tmp.mkdir(parents=True, exist_ok=True)
 
+def _run_demucs(path, tmp, model, shifts, overlap, device, log, progress, stage):
+    """Run one Demucs model to WAV stems. Returns (bass_wav, no_bass_wav) or (None, None)."""
     cmd = [
         _python_exe(), '-m', 'demucs',
-        '--two-stems', 'bass',          # bass vs. everything-else
-        '--mp3', '--mp3-bitrate', str(bitrate),
-        '-d', device,                   # 'cpu' (or 'cuda' if you have an NVIDIA GPU)
+        '--two-stems', 'bass',
+        '-d', device,
         '-n', model,
         '-o', str(tmp),
     ]
     if shifts and shifts > 0:
         cmd += ['--shifts', str(shifts)]
+    if overlap and abs(overlap - 0.25) > 1e-6:
+        cmd += ['--overlap', str(overlap)]
     cmd.append(str(path))
-    log(f'  separating "{path.name}" with {model}'
-        + (f', shifts={shifts}' if shifts else '') + ' (this takes a while on CPU)...')
     if progress is None:
-        # CLI: let Demucs draw its own progress bar straight to the console.
         rc = subprocess.run(cmd).returncode
-        if rc != 0:
-            log(f'  !! demucs failed on {path.name} (exit {rc})')
-            return False
+        recent = []
     else:
-        # GUI: stream Demucs' output, parse the % (tqdm updates with \r), and
-        # report it. Keep the last lines so we can show the error if it fails.
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, encoding='utf-8', errors='replace', bufsize=1)
-        pct_re = re.compile(r'(\d{1,3})%')
-        bag_re = re.compile(r'bag of (\d+) models')
-        recent = deque(maxlen=12)
-        # Demucs runs (bag size) x (shifts) passes, one progress bar each. Count
-        # the bars so we can report "stage N of total".
-        total_stages = max(1, shifts)
-        stage_num, last = 0, -1
-        token = ''
-        while True:
-            ch = proc.stdout.read(1)
-            if not ch:
-                break
-            if ch in '\r\n':
-                line = token.strip()
-                token = ''
-                if not line:
-                    continue
-                recent.append(line)
-                mb = bag_re.search(line)
-                if mb:
-                    total_stages = int(mb.group(1)) * (shifts if shifts and shifts > 0 else 1)
-                    if stage:
-                        stage(0, total_stages)
-                    continue
-                m = pct_re.search(line)
-                if m:
-                    p = min(100, int(m.group(1)))
-                    if last < 0 or p + 15 < last:  # first bar, or a reset = new pass
-                        stage_num += 1
-                        if stage:
-                            stage(stage_num, total_stages)
-                        log(f'  pass {stage_num} of {total_stages}…')
-                    if p != last and progress:
-                        progress(p)
-                    last = p
-            else:
-                token += ch
-        proc.wait()
-        if proc.returncode != 0:
-            log(f'  !! demucs failed on {path.name} (exit {proc.returncode}):')
-            for ln in recent:
-                log('     ' + ln)
-            return False
-
+        rc, recent = _stream(cmd, log, progress, stage, shifts)
+    if rc != 0:
+        log(f'  !! demucs ({model}) failed (exit {rc}):')
+        for ln in recent:
+            log('     ' + ln)
+        return None, None
     src = tmp / model / path.stem
-    bass_src, nobass_src = src / 'bass.mp3', src / 'no_bass.mp3'
-    if not bass_src.exists() or not nobass_src.exists():
+    bw, nw = src / 'bass.wav', src / 'no_bass.wav'
+    if not bw.exists() or not nw.exists():
         log(f'  !! expected Demucs outputs not found in {src}')
+        return None, None
+    return bw, nw
+
+
+def _ffmpeg_mix(inputs, out_mp3, bitrate, lowpass, log):
+    """Average N wav inputs (equal weight) into one MP3, optionally low-passing to
+    cut high-frequency bleed. N=1 just encodes (with the low-pass if set)."""
+    n = len(inputs)
+    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error']
+    for inp in inputs:
+        cmd += ['-i', str(inp)]
+    if n > 1:
+        f = f'amix=inputs={n}:normalize=0,volume={1.0 / n:.6f}'
+        if lowpass:
+            f += f',lowpass=f={int(lowpass)}'
+        cmd += ['-filter_complex', f]
+    elif lowpass:
+        cmd += ['-af', f'lowpass=f={int(lowpass)}']
+    cmd += ['-c:a', 'libmp3lame', '-b:a', f'{int(bitrate)}k', str(out_mp3)]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if r.returncode != 0:
+        log('  !! ffmpeg mix/encode failed:')
+        for ln in (r.stderr or '').strip().splitlines()[-6:]:
+            log('     ' + ln)
         return False
+    return True
+
+
+def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
+               models=None, shifts=0, overlap=0.25, lowpass=0,
+               log=print, progress=None, stage=None):
+    """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
+    `models` is a list of Demucs models; more than one is ensembled (their bass stems
+    are averaged, likewise no_bass), which cuts bleed further. `shifts` and `overlap`
+    are quality/time knobs. `lowpass` (Hz, 0=off) low-passes the bass stem to strip
+    high-frequency bleed (good for hearing the bassline; dulls the bass's top end).
+    `log`/`progress`/`stage` are the GUI callbacks."""
+    path = Path(path)
+    out_dir = Path(out_dir)
+    base = path.stem
+    models = list(models) if models else [MODEL]
+    if already_done(out_dir, base):
+        log(f'  skip (already split): {base}')
+        return True
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp = out_dir / '.tmp_split'
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    desc = '+'.join(models)
+    if shifts:
+        desc += f', shifts={shifts}'
+    if overlap and abs(overlap - 0.25) > 1e-6:
+        desc += f', overlap={overlap}'
+    log(f'  separating "{path.name}" with {desc} (this takes a while on CPU)...')
+
+    bass_wavs, nobass_wavs = [], []
+    for i, m in enumerate(models):
+        if len(models) > 1:
+            log(f'  model {i + 1}/{len(models)}: {m}')
+        bw, nw = _run_demucs(path, tmp, m, shifts, overlap, device, log, progress, stage)
+        if not bw:
+            shutil.rmtree(tmp, ignore_errors=True)
+            return False
+        bass_wavs.append(bw)
+        nobass_wavs.append(nw)
 
     bass_dst, nobass_dst = out_names(base)
-    shutil.move(str(bass_src), str(out_dir / bass_dst))
-    shutil.move(str(nobass_src), str(out_dir / nobass_dst))
-    shutil.rmtree(src, ignore_errors=True)
-    # Clean up the temp tree if it's now empty.
-    try:
-        shutil.rmtree(tmp)
-    except OSError:
-        pass
+    log('  mixing & encoding' + (f' (low-pass {int(lowpass)} Hz on bass)' if lowpass else '') + '…')
+    ok = (_ffmpeg_mix(bass_wavs, out_dir / bass_dst, bitrate, lowpass, log)
+          and _ffmpeg_mix(nobass_wavs, out_dir / nobass_dst, bitrate, 0, log))
+    shutil.rmtree(tmp, ignore_errors=True)
+    if not ok:
+        return False
 
     if replace:
         # Remove a single-file version of this song sitting in the output folder
@@ -237,12 +290,16 @@ def main():
     ap.add_argument('--replace', action='store_true', help='Delete a matching single-file song in --out so the stems replace it.')
     ap.add_argument('--bitrate', type=int, default=320, help='MP3 bitrate (default 320).')
     ap.add_argument('--device', default='cpu', help="Torch device: 'cpu' (default) or 'cuda'.")
-    ap.add_argument('--model', default=MODEL, help="Demucs model: htdemucs (fast) or htdemucs_ft (cleaner, ~4x slower).")
+    ap.add_argument('--model', default=MODEL, help="Demucs model: htdemucs, htdemucs_ft (cleaner), hdemucs_mmi.")
+    ap.add_argument('--models', default=None, help='Comma-separated models to ensemble (overrides --model), e.g. htdemucs_ft,hdemucs_mmi.')
     ap.add_argument('--shifts', type=int, default=0, help='Average N shifted passes to reduce bleed (slower).')
+    ap.add_argument('--overlap', type=float, default=0.25, help='Chunk overlap (default 0.25; 0.5 = cleaner, slower).')
+    ap.add_argument('--lowpass', type=int, default=0, help='Low-pass the bass stem at this Hz to cut bleed (0 = off; try 2000).')
     args = ap.parse_args()
 
+    models = [m.strip() for m in args.models.split(',')] if args.models else [args.model]
     kw = dict(replace=args.replace, bitrate=args.bitrate, device=args.device,
-              model=args.model, shifts=args.shifts)
+              models=models, shifts=args.shifts, overlap=args.overlap, lowpass=args.lowpass)
 
     if args.watch:
         if not args.in_dir:
