@@ -144,20 +144,26 @@ def _run_demucs(path, tmp, model, shifts, overlap, device, log, progress, stage)
     return bw, nw
 
 
-def _ffmpeg_mix(inputs, out_mp3, bitrate, lowpass, log):
+def _ffmpeg_mix(inputs, out_mp3, bitrate, lowpass, gate, log):
     """Average N wav inputs (equal weight) into one MP3, optionally low-passing to
-    cut high-frequency bleed. N=1 just encodes (with the low-pass if set)."""
+    cut high-frequency bleed and/or gating to suppress quiet bleed between notes.
+    N=1 just encodes (applying the filters)."""
     n = len(inputs)
     cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error']
     for inp in inputs:
         cmd += ['-i', str(inp)]
+    chain = []
     if n > 1:
-        f = f'amix=inputs={n}:normalize=0,volume={1.0 / n:.6f}'
-        if lowpass:
-            f += f',lowpass=f={int(lowpass)}'
-        cmd += ['-filter_complex', f]
-    elif lowpass:
-        cmd += ['-af', f'lowpass=f={int(lowpass)}']
+        chain.append(f'amix=inputs={n}:normalize=0,volume={1.0 / n:.6f}')
+    if lowpass:
+        chain.append(f'lowpass=f={int(lowpass)}')
+    if gate:
+        # Gentle gate: suppress bleed in the gaps without chopping sustained notes.
+        chain.append('agate=threshold=0.02:ratio=4:attack=10:release=180:detection=rms')
+    if n > 1:
+        cmd += ['-filter_complex', ','.join(chain)]
+    elif chain:
+        cmd += ['-af', ','.join(chain)]
     cmd += ['-c:a', 'libmp3lame', '-b:a', f'{int(bitrate)}k', str(out_mp3)]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if r.returncode != 0:
@@ -169,14 +175,14 @@ def _ffmpeg_mix(inputs, out_mp3, bitrate, lowpass, log):
 
 
 def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
-               models=None, shifts=0, overlap=0.25, lowpass=0,
+               models=None, shifts=0, overlap=0.25, lowpass=0, gate=False,
                log=print, progress=None, stage=None):
     """Split one audio file into bass / no_bass MP3s in out_dir. Returns True on success.
     `models` is a list of Demucs models; more than one is ensembled (their bass stems
     are averaged, likewise no_bass), which cuts bleed further. `shifts` and `overlap`
     are quality/time knobs. `lowpass` (Hz, 0=off) low-passes the bass stem to strip
-    high-frequency bleed (good for hearing the bassline; dulls the bass's top end).
-    `log`/`progress`/`stage` are the GUI callbacks."""
+    high-frequency bleed; `gate` suppresses quiet bleed between bass notes. Both only
+    affect the bass stem. `log`/`progress`/`stage` are the GUI callbacks."""
     path = Path(path)
     out_dir = Path(out_dir)
     base = path.stem
@@ -209,9 +215,14 @@ def split_file(path, out_dir, replace=False, bitrate=320, device='cpu',
         nobass_wavs.append(nw)
 
     bass_dst, nobass_dst = out_names(base)
-    log('  mixing & encoding' + (f' (low-pass {int(lowpass)} Hz on bass)' if lowpass else '') + '…')
-    ok = (_ffmpeg_mix(bass_wavs, out_dir / bass_dst, bitrate, lowpass, log)
-          and _ffmpeg_mix(nobass_wavs, out_dir / nobass_dst, bitrate, 0, log))
+    extras = []
+    if lowpass:
+        extras.append(f'low-pass {int(lowpass)} Hz')
+    if gate:
+        extras.append('gate')
+    log('  mixing & encoding' + (f' (bass: {", ".join(extras)})' if extras else '') + '…')
+    ok = (_ffmpeg_mix(bass_wavs, out_dir / bass_dst, bitrate, lowpass, gate, log)
+          and _ffmpeg_mix(nobass_wavs, out_dir / nobass_dst, bitrate, 0, False, log))
     shutil.rmtree(tmp, ignore_errors=True)
     if not ok:
         return False
@@ -295,11 +306,13 @@ def main():
     ap.add_argument('--shifts', type=int, default=0, help='Average N shifted passes to reduce bleed (slower).')
     ap.add_argument('--overlap', type=float, default=0.25, help='Chunk overlap (default 0.25; 0.5 = cleaner, slower).')
     ap.add_argument('--lowpass', type=int, default=0, help='Low-pass the bass stem at this Hz to cut bleed (0 = off; try 2000).')
+    ap.add_argument('--gate', action='store_true', help='Gate the bass stem to suppress quiet bleed between notes.')
     args = ap.parse_args()
 
     models = [m.strip() for m in args.models.split(',')] if args.models else [args.model]
     kw = dict(replace=args.replace, bitrate=args.bitrate, device=args.device,
-              models=models, shifts=args.shifts, overlap=args.overlap, lowpass=args.lowpass)
+              models=models, shifts=args.shifts, overlap=args.overlap,
+              lowpass=args.lowpass, gate=args.gate)
 
     if args.watch:
         if not args.in_dir:

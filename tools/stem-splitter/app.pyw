@@ -34,9 +34,9 @@ QUALITY = {
     'Standard — Demucs (fast)': (['htdemucs'], 0, 0.25),
     'High — fine-tuned (~4x)': (['htdemucs_ft'], 0, 0.25),
     'Best — fine-tuned + shifts + overlap (~10x)': (['htdemucs_ft'], 2, 0.5),
-    'Max — ensemble (ft+mmi) + shifts (slowest)': (['htdemucs_ft', 'hdemucs_mmi'], 2, 0.5),
+    'Max — ensemble (ft + mdx_extra) + overlap (slowest)': (['htdemucs_ft', 'mdx_extra'], 0, 0.5),
 }
-DEFAULT_QUALITY = 'Max — ensemble (ft+mmi) + shifts (slowest)'
+DEFAULT_QUALITY = 'Max — ensemble (ft + mdx_extra) + overlap (slowest)'
 
 
 def try_enable_dnd(root):
@@ -68,6 +68,7 @@ class SplitterApp(tk.Tk):
         self.quality = tk.StringVar(value=DEFAULT_QUALITY)
         self.cleanbass = tk.BooleanVar(value=False)
         self.cutoff = tk.StringVar(value='2000')
+        self.gate = tk.BooleanVar(value=False)
         self._build()
         self._wire_dnd()
         self.after(100, self._drain)
@@ -95,7 +96,11 @@ class SplitterApp(tk.Tk):
         crow.pack(fill='x', padx=12, pady=(2, 0))
         ttk.Checkbutton(crow, text='Clean bass — cut highs above', variable=self.cleanbass).pack(side='left')
         ttk.Entry(crow, textvariable=self.cutoff, width=6).pack(side='left', padx=(4, 2))
-        tk.Label(crow, text='Hz (removes bleed; dulls the bass top end)').pack(side='left')
+        tk.Label(crow, text='Hz (dulls top end)').pack(side='left')
+
+        grow = tk.Frame(self)
+        grow.pack(fill='x', padx=12, pady=(2, 0))
+        ttk.Checkbutton(grow, text='Gate bass — suppress quiet bleed between notes', variable=self.gate).pack(side='left')
 
         self.pb = ttk.Progressbar(self, mode='indeterminate')
         self.pb.pack(fill='x', padx=12, pady=6)
@@ -148,9 +153,10 @@ class SplitterApp(tk.Tk):
                 lowpass = max(200, int(float(self.cutoff.get())))
             except ValueError:
                 lowpass = 2000
-        threading.Thread(target=self._work, args=(audio, models, shifts, overlap, lowpass), daemon=True).start()
+        gate = self.gate.get()
+        threading.Thread(target=self._work, args=(audio, models, shifts, overlap, lowpass, gate), daemon=True).start()
 
-    def _work(self, files, models, shifts, overlap, lowpass):
+    def _work(self, files, models, shifts, overlap, lowpass, gate):
         self.q.put(('busy', True))
         tmp = Path(tempfile.mkdtemp(prefix='slowdowner_'))
         try:
@@ -169,7 +175,7 @@ class SplitterApp(tk.Tk):
                 self.q.put(('log', f'Splitting "{f.name}" (a few minutes on CPU)…'))
                 self.q.put(('barmode', 'determinate'))
                 ok = splitter.split_file(
-                    f, tmp, models=models, shifts=shifts, overlap=overlap, lowpass=lowpass,
+                    f, tmp, models=models, shifts=shifts, overlap=overlap, lowpass=lowpass, gate=gate,
                     log=lambda m: self.q.put(('log', m)),
                     progress=lambda p: self.q.put(('progress', p)),
                     stage=lambda c, t: self.q.put(('stage', (c, t))))

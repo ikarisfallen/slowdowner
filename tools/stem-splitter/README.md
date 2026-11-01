@@ -65,15 +65,19 @@ with **No bass / Bass** tracks (volume + mute each).
 - *Standard* — `htdemucs`, fast.
 - *High* — fine-tuned `htdemucs_ft` (cleaner, ~4× slower).
 - *Best* — `htdemucs_ft` + 2 shifts + overlap 0.5 (~10× slower).
-- *Max* — **ensemble** of `htdemucs_ft` + `hdemucs_mmi`, averaged, + shifts/overlap
-  (slowest; least bleed). **Default.**
+- *Max* — **ensemble** of `htdemucs_ft` + `mdx_extra` (two *different* architectures,
+  averaged) + overlap — the most diverse ensemble, least bleed (slowest). **Default.**
 
 **Clean bass** checkbox: low-passes the bass stem at the given cutoff (default
 2000 Hz) to strip high-frequency bleed (cymbals, sibilance). Great for *hearing*
-the bassline; it dulls the bass's top end, so it's a trade-off — leave it off for
-a full-range stem. Applies on top of any quality preset.
+the bassline; it dulls the bass's top end, so it's a trade-off. Applies on top of
+any preset.
 
-Models download on first use (standard ~80 MB, fine-tuned ~300 MB, mmi ~once).
+**Gate bass** checkbox: suppresses quiet bleed *between* bass notes (a gentle
+noise gate). Stacks with Clean bass.
+
+Models download on first use (htdemucs ~80 MB, htdemucs_ft ~300 MB, mdx_extra
+~1 GB — one-time each).
 
 ---
 
@@ -101,9 +105,10 @@ the top and double-click.
 | `--bitrate <n>` | MP3 bitrate (default 320) |
 | `--device cuda` | use an NVIDIA GPU instead of CPU |
 | `--model htdemucs_ft` | fine-tuned model — cleaner isolation / less bleed (~4× slower) |
-| `--models htdemucs_ft,hdemucs_mmi` | ensemble (averaged) — least bleed, slowest |
+| `--models htdemucs_ft,mdx_extra` | ensemble (averaged) — least bleed, slowest |
 | `--overlap 0.5` | chunk overlap (default 0.25; higher = cleaner, slower) |
 | `--lowpass 2000` | low-pass the bass stem at N Hz to cut high-freq bleed (0 = off) |
+| `--gate` | gate the bass stem to suppress quiet bleed between notes |
 | `--shifts N` | average N shifted passes to reduce bleed (each multiplies the time) |
 
 ## Files
