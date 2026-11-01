@@ -68,13 +68,9 @@ with **No bass / Bass** tracks (volume + mute each).
 - *Max* — **ensemble** of `htdemucs_ft` + `mdx_extra` (two *different* architectures,
   averaged) + overlap — the most diverse ensemble, least bleed (slowest). **Default.**
 
-**Clean bass** checkbox: low-passes the bass stem at the given cutoff (default
-2000 Hz) to strip high-frequency bleed (cymbals, sibilance). Great for *hearing*
-the bassline; it dulls the bass's top end, so it's a trade-off. Applies on top of
-any preset.
-
 **Gate bass** checkbox: suppresses quiet bleed *between* bass notes (a gentle
-noise gate). Stacks with Clean bass.
+noise gate) — cleans the silences without dulling the bass tone. Applies on top
+of any preset.
 
 Models download on first use (htdemucs ~80 MB, htdemucs_ft ~300 MB, mdx_extra
 ~1 GB — one-time each).
@@ -107,7 +103,6 @@ the top and double-click.
 | `--model htdemucs_ft` | fine-tuned model — cleaner isolation / less bleed (~4× slower) |
 | `--models htdemucs_ft,mdx_extra` | ensemble (averaged) — least bleed, slowest |
 | `--overlap 0.5` | chunk overlap (default 0.25; higher = cleaner, slower) |
-| `--lowpass 2000` | low-pass the bass stem at N Hz to cut high-freq bleed (0 = off) |
 | `--gate` | gate the bass stem to suppress quiet bleed between notes |
 | `--shifts N` | average N shifted passes to reduce bleed (each multiplies the time) |
 

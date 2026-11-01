@@ -66,8 +66,6 @@ class SplitterApp(tk.Tk):
         self.cur_stage = None
         self.cur_pct = 0
         self.quality = tk.StringVar(value=DEFAULT_QUALITY)
-        self.cleanbass = tk.BooleanVar(value=False)
-        self.cutoff = tk.StringVar(value='2000')
         self.gate = tk.BooleanVar(value=False)
         self._build()
         self._wire_dnd()
@@ -91,12 +89,6 @@ class SplitterApp(tk.Tk):
         tk.Label(qrow, text='Quality:').pack(side='left')
         ttk.Combobox(qrow, textvariable=self.quality, state='readonly', width=38,
                      values=list(QUALITY.keys())).pack(side='left', padx=8)
-
-        crow = tk.Frame(self)
-        crow.pack(fill='x', padx=12, pady=(2, 0))
-        ttk.Checkbutton(crow, text='Clean bass — cut highs above', variable=self.cleanbass).pack(side='left')
-        ttk.Entry(crow, textvariable=self.cutoff, width=6).pack(side='left', padx=(4, 2))
-        tk.Label(crow, text='Hz (dulls top end)').pack(side='left')
 
         grow = tk.Frame(self)
         grow.pack(fill='x', padx=12, pady=(2, 0))
@@ -147,16 +139,10 @@ class SplitterApp(tk.Tk):
             messagebox.showinfo('Slowdowner', 'Still working — let the current batch finish first.')
             return
         models, shifts, overlap = QUALITY.get(self.quality.get(), QUALITY[DEFAULT_QUALITY])
-        lowpass = 0
-        if self.cleanbass.get():
-            try:
-                lowpass = max(200, int(float(self.cutoff.get())))
-            except ValueError:
-                lowpass = 2000
         gate = self.gate.get()
-        threading.Thread(target=self._work, args=(audio, models, shifts, overlap, lowpass, gate), daemon=True).start()
+        threading.Thread(target=self._work, args=(audio, models, shifts, overlap, gate), daemon=True).start()
 
-    def _work(self, files, models, shifts, overlap, lowpass, gate):
+    def _work(self, files, models, shifts, overlap, gate):
         self.q.put(('busy', True))
         tmp = Path(tempfile.mkdtemp(prefix='slowdowner_'))
         try:
@@ -175,7 +161,7 @@ class SplitterApp(tk.Tk):
                 self.q.put(('log', f'Splitting "{f.name}" (a few minutes on CPU)…'))
                 self.q.put(('barmode', 'determinate'))
                 ok = splitter.split_file(
-                    f, tmp, models=models, shifts=shifts, overlap=overlap, lowpass=lowpass, gate=gate,
+                    f, tmp, models=models, shifts=shifts, overlap=overlap, gate=gate,
                     log=lambda m: self.q.put(('log', m)),
                     progress=lambda p: self.q.put(('progress', p)),
                     stage=lambda c, t: self.q.put(('stage', (c, t))))
