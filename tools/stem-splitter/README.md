@@ -72,6 +72,13 @@ with **No bass / Bass** tracks (volume + mute each).
 noise gate) — cleans the silences without dulling the bass tone. Applies on top
 of any preset.
 
+**Destination** (radio buttons):
+- *Upload to Google Drive* — the normal flow (default); stems go to your
+  Slowdowner Drive folder.
+- *Save next to source file (local testing)* — writes the two stems into the
+  same folder as the song and skips Drive entirely. Handy for quickly A/B-ing
+  quality settings on your PC.
+
 Models download on first use (htdemucs ~80 MB, htdemucs_ft ~300 MB, mdx_extra
 ~1 GB — one-time each).
 

@@ -67,6 +67,7 @@ class SplitterApp(tk.Tk):
         self.cur_pct = 0
         self.quality = tk.StringVar(value=DEFAULT_QUALITY)
         self.gate = tk.BooleanVar(value=False)
+        self.dest = tk.StringVar(value='drive')  # 'drive' or 'local'
         self._build()
         self._wire_dnd()
         self.after(100, self._drain)
@@ -93,6 +94,12 @@ class SplitterApp(tk.Tk):
         grow = tk.Frame(self)
         grow.pack(fill='x', padx=12, pady=(2, 0))
         ttk.Checkbutton(grow, text='Gate bass — suppress quiet bleed between notes', variable=self.gate).pack(side='left')
+
+        drow = tk.Frame(self)
+        drow.pack(fill='x', padx=12, pady=(4, 0))
+        ttk.Radiobutton(drow, text='Upload to Google Drive', variable=self.dest, value='drive').pack(side='left')
+        ttk.Radiobutton(drow, text='Save next to source file (local testing)',
+                        variable=self.dest, value='local').pack(side='left', padx=(12, 0))
 
         self.pb = ttk.Progressbar(self, mode='indeterminate')
         self.pb.pack(fill='x', padx=12, pady=6)
@@ -140,28 +147,32 @@ class SplitterApp(tk.Tk):
             return
         models, shifts, overlap = QUALITY.get(self.quality.get(), QUALITY[DEFAULT_QUALITY])
         gate = self.gate.get()
-        threading.Thread(target=self._work, args=(audio, models, shifts, overlap, gate), daemon=True).start()
+        dest = self.dest.get()
+        threading.Thread(target=self._work, args=(audio, models, shifts, overlap, gate, dest), daemon=True).start()
 
-    def _work(self, files, models, shifts, overlap, gate):
+    def _work(self, files, models, shifts, overlap, gate, dest):
         self.q.put(('busy', True))
-        tmp = Path(tempfile.mkdtemp(prefix='slowdowner_'))
+        svc = folder = tmp = None
         try:
-            self.q.put(('log', 'Connecting to Google Drive…'))
-            try:
-                svc = drive_upload.get_service(str(HERE / 'client_secrets.json'), str(HERE / 'token.json'))
-                folder = drive_upload.ensure_folder(svc)
-            except Exception as e:
-                self.q.put(('log', f'Google Drive sign-in failed: {e}'))
-                self.q.put(('busy', False))
-                return
+            if dest == 'drive':
+                self.q.put(('log', 'Connecting to Google Drive…'))
+                try:
+                    svc = drive_upload.get_service(str(HERE / 'client_secrets.json'), str(HERE / 'token.json'))
+                    folder = drive_upload.ensure_folder(svc)
+                except Exception as e:
+                    self.q.put(('log', f'Google Drive sign-in failed: {e}'))
+                    self.q.put(('busy', False))
+                    return
+                tmp = Path(tempfile.mkdtemp(prefix='slowdowner_'))
             for i, f in enumerate(files, 1):
                 f = Path(f)
                 base = f.stem
+                out_dir = tmp if dest == 'drive' else f.parent
                 self.q.put(('action', f'[{i}/{len(files)}] Splitting {f.name}'))
                 self.q.put(('log', f'Splitting "{f.name}" (a few minutes on CPU)…'))
                 self.q.put(('barmode', 'determinate'))
                 ok = splitter.split_file(
-                    f, tmp, models=models, shifts=shifts, overlap=overlap, gate=gate,
+                    f, out_dir, models=models, shifts=shifts, overlap=overlap, gate=gate,
                     log=lambda m: self.q.put(('log', m)),
                     progress=lambda p: self.q.put(('progress', p)),
                     stage=lambda c, t: self.q.put(('stage', (c, t))))
@@ -169,25 +180,32 @@ class SplitterApp(tk.Tk):
                     self.q.put(('log', f'  !! could not split {f.name}'))
                     continue
                 a, b = splitter.out_names(base)
-                self.q.put(('action', f'[{i}/{len(files)}] Uploading {base}'))
-                self.q.put(('barmode', 'indeterminate'))
-                self.q.put(('log', '  uploading stems to Google Drive…'))
-                try:
-                    drive_upload.upload(svc, folder, str(tmp / a))
-                    drive_upload.upload(svc, folder, str(tmp / b))
-                    drive_upload.delete_singles(svc, folder, base)
-                    self.q.put(('log', f'  ✓ {base} — done (in your Slowdowner Drive folder)'))
-                except Exception as e:
-                    self.q.put(('log', f'  !! upload failed: {e}'))
-                for nm in (a, b):
+                if dest == 'drive':
+                    self.q.put(('action', f'[{i}/{len(files)}] Uploading {base}'))
+                    self.q.put(('barmode', 'indeterminate'))
+                    self.q.put(('log', '  uploading stems to Google Drive…'))
                     try:
-                        (tmp / nm).unlink()
-                    except OSError:
-                        pass
+                        drive_upload.upload(svc, folder, str(tmp / a))
+                        drive_upload.upload(svc, folder, str(tmp / b))
+                        drive_upload.delete_singles(svc, folder, base)
+                        self.q.put(('log', f'  ✓ {base} — done (in your Slowdowner Drive folder)'))
+                    except Exception as e:
+                        self.q.put(('log', f'  !! upload failed: {e}'))
+                    for nm in (a, b):
+                        try:
+                            (tmp / nm).unlink()
+                        except OSError:
+                            pass
+                else:
+                    self.q.put(('log', f'  ✓ {base} — saved to {out_dir}'))
             self.q.put(('status', 'Done'))
-            self.q.put(('log', 'Finished. Sync Slowdowner to see the new stems.'))
+            if dest == 'drive':
+                self.q.put(('log', 'Finished. Sync Slowdowner to see the new stems.'))
+            else:
+                self.q.put(('log', 'Finished. Stems are next to their source files.'))
         finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+            if tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
             self.q.put(('busy', False))
 
     def _update_status(self):
