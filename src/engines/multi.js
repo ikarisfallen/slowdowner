@@ -8,8 +8,12 @@
 import { createSignalsmithEngine } from './signalsmith.js';
 
 export async function createMultiEngine(ctx, destination) {
-  // tracks: { engine, gain, name, volume, muted }
+  // tracks: { engine, gain, name, volume, muted, pitch }
+  // `pitch` is a per-track semitone OFFSET added on top of the global pitch, so
+  // a stem (e.g. bass) can be shifted independently (e.g. +12 to hear it an
+  // octave up when the song is slowed). Effective pitch = basePitch + t.pitch.
   const tracks = [];
+  let basePitch = 0;
 
   function first() {
     return tracks[0]?.engine || null;
@@ -38,7 +42,8 @@ export async function createMultiEngine(ctx, destination) {
         engine.outputNode.connect(gain);
         gain.connect(destination);
         await engine.load(it.buffer);
-        tracks.push({ engine, gain, name: it.name, volume: vol, muted: false });
+        const pitch = it.pitch == null ? 0 : it.pitch;
+        tracks.push({ engine, gain, name: it.name, volume: vol, muted: false, pitch });
       }
     },
 
@@ -57,7 +62,15 @@ export async function createMultiEngine(ctx, destination) {
       for (const t of tracks) t.engine.setSpeed(r);
     },
     setPitch(s) {
-      for (const t of tracks) t.engine.setPitch(s);
+      basePitch = s;
+      for (const t of tracks) t.engine.setPitch(basePitch + (t.pitch || 0));
+    },
+    // Per-track pitch offset (semitones), added on top of the global pitch.
+    setTrackPitch(i, offset) {
+      const t = tracks[i];
+      if (!t) return;
+      t.pitch = offset;
+      t.engine.setPitch(basePitch + offset);
     },
     setLoop(start, end) {
       for (const t of tracks) t.engine.setLoop(start, end);

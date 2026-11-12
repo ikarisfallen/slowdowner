@@ -220,6 +220,7 @@ function render() {
         <button class="chip" data-pitch="0">Reset</button>
         <button class="chip" data-pitch="-1">−1</button>
         <button class="chip" data-pitch="1">+1</button>
+        <button class="chip" data-pitch="12" title="Up an octave">+12</button>
       </div>
     </div>
 
@@ -350,7 +351,7 @@ async function recoverAudio(reason) {
     if (ctx.state !== 'running') throw new Error('context not running after resume');
     if (state.tracks.length) {
       state.engine = await buildEngine();
-      await state.engine.load(state.tracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
+      await state.engine.load(state.tracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume, pitch: t.pitch })));
       state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
       applyEngineParams();
       state.engine.seek(pos);
@@ -464,6 +465,7 @@ async function loadSong(song, { autoplay = false } = {}) {
       buffer: buf,
       volume: mix.volume == null ? (td.volume == null ? 1 : td.volume) : mix.volume,
       muted: !!mix.muted,
+      pitch: mix.pitch == null ? 0 : mix.pitch,
     });
   }
   state.tracks = loadedTracks;
@@ -482,7 +484,7 @@ async function loadSong(song, { autoplay = false } = {}) {
   if (state.engine) { state.engine.dispose(); state.engine = null; }
   try {
     state.engine = await buildEngine();
-    await state.engine.load(loadedTracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
+    await state.engine.load(loadedTracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume, pitch: t.pitch })));
     loadedTracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
   } catch (err) {
     console.error('Engine load failed:', err);
@@ -650,26 +652,36 @@ function renderTrackMix() {
     return;
   }
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="trackmix-head muted">Tracks</div>`;
+  box.innerHTML = `<div class="trackmix-head muted">Tracks <span class="muted" style="text-transform:none;letter-spacing:0;font-size:11px">· each stem has its own pitch</span></div>`;
   state.tracks.forEach((t, i) => {
-    const row = el(`
-      <div class="trackrow ${t.muted ? 'muted-row' : ''}">
-        <button class="btn mutebtn ${t.muted ? 'on' : ''}" title="Mute/unmute">${t.muted ? '🔇' : '🔊'}</button>
-        <div class="tname">${escapeHtml(t.name)}</div>
-        <input type="range" class="tvol" min="0" max="150" step="1" value="${Math.round(t.volume * 100)}" aria-label="${escapeHtml(t.name)} volume" />
-        <div class="tval mono muted">${Math.round(t.volume * 100)}%</div>
+    const group = el(`
+      <div class="trackgroup">
+        <div class="trackrow ${t.muted ? 'muted-row' : ''}">
+          <button class="btn mutebtn ${t.muted ? 'on' : ''}" title="Mute/unmute">${t.muted ? '🔇' : '🔊'}</button>
+          <div class="tname">${escapeHtml(t.name)}</div>
+          <input type="range" class="tvol" min="0" max="150" step="1" value="${Math.round(t.volume * 100)}" aria-label="${escapeHtml(t.name)} volume" />
+          <div class="tval mono muted">${Math.round(t.volume * 100)}%</div>
+        </div>
+        <div class="trackpitch">
+          <span class="tplabel muted">Pitch</span>
+          <input type="range" class="tpitch" min="-12" max="12" step="1" value="${t.pitch || 0}" aria-label="${escapeHtml(t.name)} pitch" />
+          <div class="tpval mono muted">${fmtSemitones(t.pitch || 0)}</div>
+          <button class="chip tp-oct" title="Up an octave">+12</button>
+          <button class="chip tp-reset" title="Reset pitch">Reset</button>
+        </div>
       </div>`);
-    const slider = row.querySelector('.tvol');
-    const valEl = row.querySelector('.tval');
+    const row = group.querySelector('.trackrow');
+    const slider = group.querySelector('.tvol');
+    const valEl = group.querySelector('.tval');
     slider.addEventListener('input', () => {
       const v = Number(slider.value) / 100;
       t.volume = v;
-      if (t.muted) { t.muted = false; row.classList.remove('muted-row'); row.querySelector('.mutebtn').classList.remove('on'); row.querySelector('.mutebtn').textContent = '🔊'; }
+      if (t.muted) { t.muted = false; row.classList.remove('muted-row'); group.querySelector('.mutebtn').classList.remove('on'); group.querySelector('.mutebtn').textContent = '🔊'; }
       state.engine?.setTrackVolume(i, v);
       valEl.textContent = `${Math.round(v * 100)}%`;
       persistTrackMix();
     });
-    row.querySelector('.mutebtn').onclick = (e) => {
+    group.querySelector('.mutebtn').onclick = (e) => {
       t.muted = !t.muted;
       state.engine?.setTrackMuted(i, t.muted);
       e.currentTarget.classList.toggle('on', t.muted);
@@ -677,8 +689,28 @@ function renderTrackMix() {
       row.classList.toggle('muted-row', t.muted);
       persistTrackMix();
     };
-    box.appendChild(row);
+
+    // per-track pitch
+    const pslider = group.querySelector('.tpitch');
+    const pval = group.querySelector('.tpval');
+    const setTrackPitch = (semi) => {
+      const s = Math.max(-12, Math.min(12, Math.round(semi)));
+      t.pitch = s;
+      pslider.value = s;
+      pval.textContent = fmtSemitones(s);
+      state.engine?.setTrackPitch?.(i, s);
+      persistTrackMix();
+    };
+    pslider.addEventListener('input', () => setTrackPitch(Number(pslider.value)));
+    group.querySelector('.tp-oct').onclick = () => setTrackPitch(12);
+    group.querySelector('.tp-reset').onclick = () => setTrackPitch(0);
+
+    box.appendChild(group);
   });
+}
+
+function fmtSemitones(s) {
+  return `${s > 0 ? '+' : ''}${s} st`;
 }
 
 let trackMixTimer;
@@ -687,7 +719,7 @@ function persistTrackMix() {
   clearTimeout(trackMixTimer);
   trackMixTimer = setTimeout(() => {
     const trackVolumes = {};
-    state.tracks.forEach((t) => { trackVolumes[t.mixKey] = { volume: t.volume, muted: t.muted }; });
+    state.tracks.forEach((t) => { trackVolumes[t.mixKey] = { volume: t.volume, muted: t.muted, pitch: t.pitch || 0 }; });
     db.updateSongSettings(state.song.id, { trackVolumes }).then(schedulePush);
   }, 300);
 }
