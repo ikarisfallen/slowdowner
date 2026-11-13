@@ -130,9 +130,9 @@ const state = {
   playing: false,
   // Bass Focus: a DSP bus (center-focus + resonant band-pass + optional octave)
   // that lets you solo/emphasise the bass of a full mix without stems.
-  bassFocus: { solo: false, mix: 0, center: 70, freq: 120, q: 2, oct: false, octAmt: 50 },
+  bassFocus: { solo: false, mix: 0, center: 70, freq: 120, q: 2, lowBoost: 0, oct: false, octAmt: 50 },
 };
-const BASS_FOCUS_DEFAULTS = { solo: false, mix: 0, center: 70, freq: 120, q: 2, oct: false, octAmt: 50 };
+const BASS_FOCUS_DEFAULTS = { solo: false, mix: 0, center: 70, freq: 120, q: 2, lowBoost: 0, oct: false, octAmt: 50 };
 
 let wave;
 
@@ -243,6 +243,8 @@ function render() {
         <input type="range" id="bfFreq" min="40" max="500" step="5" value="120" />
         <div class="bfrow"><span class="muted">Sharpness</span><span class="val" id="bfQVal">2.0</span></div>
         <input type="range" id="bfQ" min="5" max="80" step="1" value="20" />
+        <div class="bfrow"><span class="muted">Low boost (below focus)</span><span class="val" id="bfLowVal">0<small> dB</small></span></div>
+        <input type="range" id="bfLow" min="0" max="18" step="1" value="0" />
         <label class="bfoct"><input type="checkbox" id="bfOct" /> <span class="muted">Octave up — adds a higher ghost of the bass (good on phones)</span></label>
         <div id="bfOctWrap" class="hidden">
           <div class="bfrow"><span class="muted">Octave amount</span><span class="val" id="bfOctVal">50<small>%</small></span></div>
@@ -368,9 +370,17 @@ function buildBassFocus(ctx, out) {
   bp.Q.value = 2;
   center.connect(bp);
 
+  // Low-shelf boost below the focus frequency: lifts the bass fundamental (which
+  // sits under the piano/comping) without reopening the highs the band-pass cut.
+  const lowShelf = ctx.createBiquadFilter();
+  lowShelf.type = 'lowshelf';
+  lowShelf.frequency.value = 120;
+  lowShelf.gain.value = 0;
+  bp.connect(lowShelf);
+
   const band = ctx.createGain();
   band.gain.value = 1;
-  bp.connect(band);
+  lowShelf.connect(band);
 
   // octave branch: full-wave rectifier doubles the fundamental, highpass strips DC
   const shaper = ctx.createWaveShaper();
@@ -381,7 +391,7 @@ function buildBassFocus(ctx, out) {
   octHP.frequency.value = 120;
   const oct = ctx.createGain();
   oct.gain.value = 0;
-  bp.connect(shaper);
+  lowShelf.connect(shaper);
   shaper.connect(octHP);
   octHP.connect(oct);
 
@@ -391,7 +401,7 @@ function buildBassFocus(ctx, out) {
   oct.connect(wet);
   wet.connect(out);
 
-  return { busIn, dry, stereoTap, monoTap, bp, shaper, octHP, oct, wet };
+  return { busIn, dry, stereoTap, monoTap, bp, lowShelf, shaper, octHP, oct, wet };
 }
 
 function absCurve() {
@@ -416,6 +426,8 @@ function applyBassFocus() {
   ramp(n.stereoTap.gain, 1 - f);
   ramp(n.bp.frequency, b.freq);
   ramp(n.bp.Q, b.q);
+  ramp(n.lowShelf.frequency, b.freq);
+  ramp(n.lowShelf.gain, b.lowBoost);
   ramp(n.octHP.frequency, Math.max(80, b.freq));
   ramp(n.oct.gain, b.oct ? b.octAmt / 100 : 0);
   if (b.solo) {
@@ -854,6 +866,7 @@ function syncBassFocusUI() {
   set('#bfCenter', b.center);
   set('#bfFreq', b.freq);
   set('#bfQ', Math.round(b.q * 10));
+  set('#bfLow', b.lowBoost);
   $('#bfOct').checked = b.oct;
   set('#bfOctAmt', b.octAmt);
   $('#bfPanel').classList.toggle('hidden', !b.solo);
@@ -863,6 +876,7 @@ function syncBassFocusUI() {
   $('#bfCenterVal').innerHTML = `${b.center}<small>%</small>`;
   $('#bfFreqVal').innerHTML = `${b.freq}<small> Hz</small>`;
   $('#bfQVal').textContent = b.q.toFixed(1);
+  $('#bfLowVal').innerHTML = `${b.lowBoost > 0 ? '+' : ''}${b.lowBoost}<small> dB</small>`;
   $('#bfOctVal').innerHTML = `${b.octAmt}<small>%</small>`;
 }
 
@@ -1760,6 +1774,7 @@ function wireShell() {
   $('#bfCenter').addEventListener('input', (e) => updateBassFocus({ center: Number(e.target.value) }));
   $('#bfFreq').addEventListener('input', (e) => updateBassFocus({ freq: Number(e.target.value) }));
   $('#bfQ').addEventListener('input', (e) => updateBassFocus({ q: Number(e.target.value) / 10 }));
+  $('#bfLow').addEventListener('input', (e) => updateBassFocus({ lowBoost: Number(e.target.value) }));
   $('#bfOct').addEventListener('change', (e) => updateBassFocus({ oct: e.target.checked }));
   $('#bfOctAmt').addEventListener('input', (e) => updateBassFocus({ octAmt: Number(e.target.value) }));
 
