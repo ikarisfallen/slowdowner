@@ -128,7 +128,11 @@ const state = {
   pitch: 0,
   volume: 1, // output gain multiplier (boost quiet stems)
   playing: false,
+  // Bass Focus: a DSP bus (center-focus + resonant band-pass + optional octave)
+  // that lets you solo/emphasise the bass of a full mix without stems.
+  bassFocus: { solo: false, mix: 0, center: 70, freq: 120, q: 2, oct: false, octAmt: 50 },
 };
+const BASS_FOCUS_DEFAULTS = { solo: false, mix: 0, center: 70, freq: 120, q: 2, oct: false, octAmt: 50 };
 
 let wave;
 
@@ -224,6 +228,29 @@ function render() {
       </div>
     </div>
 
+    <div class="control">
+      <div class="head">
+        <label class="bfhead"><input type="checkbox" id="bfSolo" /> <span class="muted">Bass Focus</span></label>
+        <span class="val" id="bfStateVal">off</span>
+      </div>
+      <div id="bfPanel" class="bfpanel hidden">
+        <div class="bfhint muted">Hears the bass out of a full mix (no stems): centres the signal, rings out the low band, optional octave‑up.</div>
+        <div class="bfrow"><span class="muted">Mix original back in</span><span class="val" id="bfMixVal">0<small>%</small></span></div>
+        <input type="range" id="bfMix" min="0" max="100" step="1" value="0" />
+        <div class="bfrow"><span class="muted">Center focus (toward mono)</span><span class="val" id="bfCenterVal">70<small>%</small></span></div>
+        <input type="range" id="bfCenter" min="0" max="100" step="1" value="70" />
+        <div class="bfrow"><span class="muted">Focus frequency</span><span class="val" id="bfFreqVal">120<small> Hz</small></span></div>
+        <input type="range" id="bfFreq" min="40" max="500" step="5" value="120" />
+        <div class="bfrow"><span class="muted">Sharpness</span><span class="val" id="bfQVal">2.0</span></div>
+        <input type="range" id="bfQ" min="5" max="80" step="1" value="20" />
+        <label class="bfoct"><input type="checkbox" id="bfOct" /> <span class="muted">Octave up — adds a higher ghost of the bass (good on phones)</span></label>
+        <div id="bfOctWrap" class="hidden">
+          <div class="bfrow"><span class="muted">Octave amount</span><span class="val" id="bfOctVal">50<small>%</small></span></div>
+          <input type="range" id="bfOctAmt" min="0" max="100" step="1" value="50" />
+        </div>
+      </div>
+    </div>
+
     <div class="control" style="margin-top:2px">
       <button class="disclosure" id="sectionsToggle"><span id="sectionsChev">▸</span> <span id="sectionsToggleLabel">Show sections (0)</span></button>
       <div id="sectionsPanel" class="hidden">
@@ -282,6 +309,12 @@ function ensureAudio() {
   limiter.ratio.value = 20;
   limiter.attack.value = 0.003;
   limiter.release.value = 0.1;
+  // Bass Focus bus sits between the engines and the master gain. Engines feed
+  // `busIn`; from there a dry path and a wet (bass-focused) path mix into `gain`.
+  const bf = buildBassFocus(ctx, gain);
+  state.busIn = bf.busIn;
+  state.bfNodes = bf;
+
   gain.connect(limiter);
   limiter.connect(ctx.destination);
 
@@ -297,6 +330,101 @@ function ensureAudio() {
   state.gain = gain;
   state.limiter = limiter;
   return ctx;
+}
+
+// ---------- Bass Focus (DSP bus) ----------
+// Graph:  busIn ─┬─► dry ─────────────────────────────────────────► out
+//                └─► [stereo/mono crossfade] ─► band-pass ─┬─► band ─┐
+//                                                          └─► shaper ─► octHP ─► oct ─┴─► wet ─► out
+// Dry/wet gains implement the solo + mix-back-in. Center-focus crossfades toward
+// mono (cancels side/stereo-spread content; bass is centred so it survives). The
+// band-pass rings out the bass register. The optional octave branch full-wave-
+// rectifies the band to add a higher harmonic "ghost" so the line is audible on
+// small speakers.
+function buildBassFocus(ctx, out) {
+  const busIn = ctx.createGain();
+
+  const dry = ctx.createGain();
+  dry.gain.value = 1;
+  busIn.connect(dry);
+  dry.connect(out);
+
+  // center focus: crossfade between full stereo and a mono downmix
+  const stereoTap = ctx.createGain();
+  stereoTap.gain.value = 0.3;
+  const monoTap = ctx.createGain();
+  monoTap.gain.value = 0.7;
+  monoTap.channelCountMode = 'explicit';
+  monoTap.channelCount = 1; // forces a mono (0.5L+0.5R) downmix; side content cancels
+  busIn.connect(stereoTap);
+  busIn.connect(monoTap);
+  const center = ctx.createGain();
+  stereoTap.connect(center);
+  monoTap.connect(center);
+
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 120;
+  bp.Q.value = 2;
+  center.connect(bp);
+
+  const band = ctx.createGain();
+  band.gain.value = 1;
+  bp.connect(band);
+
+  // octave branch: full-wave rectifier doubles the fundamental, highpass strips DC
+  const shaper = ctx.createWaveShaper();
+  shaper.curve = absCurve();
+  shaper.oversample = '2x';
+  const octHP = ctx.createBiquadFilter();
+  octHP.type = 'highpass';
+  octHP.frequency.value = 120;
+  const oct = ctx.createGain();
+  oct.gain.value = 0;
+  bp.connect(shaper);
+  shaper.connect(octHP);
+  octHP.connect(oct);
+
+  const wet = ctx.createGain();
+  wet.gain.value = 0; // solo off by default
+  band.connect(wet);
+  oct.connect(wet);
+  wet.connect(out);
+
+  return { busIn, dry, stereoTap, monoTap, bp, shaper, octHP, oct, wet };
+}
+
+function absCurve() {
+  const n = 1024;
+  const c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    c[i] = 2 * Math.abs(x) - 1; // full-wave rectify, recentred to ~[-1,1]
+  }
+  return c;
+}
+
+function applyBassFocus() {
+  const b = state.bassFocus;
+  const n = state.bfNodes;
+  const ctx = state.audioCtx;
+  if (!n || !ctx) return;
+  const t = ctx.currentTime;
+  const ramp = (p, v) => p.setTargetAtTime(v, t, 0.015);
+  const f = b.center / 100; // mono amount
+  ramp(n.monoTap.gain, f);
+  ramp(n.stereoTap.gain, 1 - f);
+  ramp(n.bp.frequency, b.freq);
+  ramp(n.bp.Q, b.q);
+  ramp(n.octHP.frequency, Math.max(80, b.freq));
+  ramp(n.oct.gain, b.oct ? b.octAmt / 100 : 0);
+  if (b.solo) {
+    ramp(n.wet.gain, 1);
+    ramp(n.dry.gain, b.mix / 100);
+  } else {
+    ramp(n.wet.gain, 0);
+    ramp(n.dry.gain, 1);
+  }
 }
 
 function teardownCtx() {
@@ -407,8 +535,9 @@ function hideAudioFailBanner() {
 
 async function buildEngine() {
   const ctx = ensureAudio();
-  // Each stem routes through its own gain into the shared master (state.gain).
-  return await createMultiEngine(ctx, state.gain);
+  // Each stem routes through its own gain into the Bass Focus bus, which then
+  // mixes (dry + bass-focused) into the shared master (state.gain).
+  return await createMultiEngine(ctx, state.busIn);
 }
 
 // ---------- song loading ----------
@@ -428,6 +557,7 @@ async function loadSong(song, { autoplay = false } = {}) {
   try { localStorage.setItem('lastSongId', song.id); } catch {}
   state.speed = song.settings?.speed ?? 1;
   state.pitch = song.settings?.pitch ?? 0;
+  state.bassFocus = { ...BASS_FOCUS_DEFAULTS, ...(song.settings?.bassFocus || {}) };
 
   $('#player').classList.remove('hidden');
   $('#songTitle').textContent = song.name;
@@ -535,6 +665,7 @@ function applyEngineParams() {
   state.engine.setPitch(state.pitch);
   const l = state.loopOn && state.draftLoop ? state.draftLoop : null;
   state.engine.setLoop(l ? l.start : null, l ? l.end : null);
+  applyBassFocus();
 }
 
 // ---------- transport ----------
@@ -639,6 +770,7 @@ function syncSpeedChips() {
 function syncControls() {
   setSpeed(state.speed * 100);
   setPitch(state.pitch);
+  syncBassFocusUI();
   updateLoopReadout();
 }
 
@@ -711,6 +843,43 @@ function renderTrackMix() {
 
 function fmtSemitones(s) {
   return `${s > 0 ? '+' : ''}${s} st`;
+}
+
+// ---------- bass focus UI ----------
+function syncBassFocusUI() {
+  const b = state.bassFocus;
+  const set = (id, v) => { const e = $(id); if (e) e.value = v; };
+  $('#bfSolo').checked = b.solo;
+  set('#bfMix', b.mix);
+  set('#bfCenter', b.center);
+  set('#bfFreq', b.freq);
+  set('#bfQ', Math.round(b.q * 10));
+  $('#bfOct').checked = b.oct;
+  set('#bfOctAmt', b.octAmt);
+  $('#bfPanel').classList.toggle('hidden', !b.solo);
+  $('#bfOctWrap').classList.toggle('hidden', !b.oct);
+  $('#bfStateVal').textContent = b.solo ? 'on' : 'off';
+  $('#bfMixVal').innerHTML = `${b.mix}<small>%</small>`;
+  $('#bfCenterVal').innerHTML = `${b.center}<small>%</small>`;
+  $('#bfFreqVal').innerHTML = `${b.freq}<small> Hz</small>`;
+  $('#bfQVal').textContent = b.q.toFixed(1);
+  $('#bfOctVal').innerHTML = `${b.octAmt}<small>%</small>`;
+}
+
+function updateBassFocus(patch) {
+  Object.assign(state.bassFocus, patch);
+  syncBassFocusUI();
+  applyBassFocus();
+  persistBassFocus();
+}
+
+let bassFocusTimer;
+function persistBassFocus() {
+  if (!state.song) return;
+  clearTimeout(bassFocusTimer);
+  bassFocusTimer = setTimeout(() => {
+    db.updateSongSettings(state.song.id, { bassFocus: { ...state.bassFocus } }).then(schedulePush);
+  }, 300);
 }
 
 let trackMixTimer;
@@ -1584,6 +1753,15 @@ function wireShell() {
 
   $('#pitch').addEventListener('input', (e) => setPitch(Number(e.target.value)));
   document.querySelectorAll('[data-pitch]').forEach((c) => (c.onclick = () => setPitch(Number(c.dataset.pitch))));
+
+  // Bass Focus
+  $('#bfSolo').addEventListener('change', (e) => updateBassFocus({ solo: e.target.checked }));
+  $('#bfMix').addEventListener('input', (e) => updateBassFocus({ mix: Number(e.target.value) }));
+  $('#bfCenter').addEventListener('input', (e) => updateBassFocus({ center: Number(e.target.value) }));
+  $('#bfFreq').addEventListener('input', (e) => updateBassFocus({ freq: Number(e.target.value) }));
+  $('#bfQ').addEventListener('input', (e) => updateBassFocus({ q: Number(e.target.value) / 10 }));
+  $('#bfOct').addEventListener('change', (e) => updateBassFocus({ oct: e.target.checked }));
+  $('#bfOctAmt').addEventListener('input', (e) => updateBassFocus({ octAmt: Number(e.target.value) }));
 
 
   window.addEventListener('keydown', (e) => {

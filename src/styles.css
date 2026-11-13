@@ -159,6 +159,20 @@ input[type="range"] { width: 100%; height: 34px; accent-color: var(--accent); }
 .trackpitch .tpval { width: 48px; text-align: right; font-size: 13px; }
 .trackpitch .chip { min-height: 32px; padding: 5px 10px; font-size: 12px; }
 
+/* Bass Focus */
+.bfhead { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.bfhead input { width: 18px; height: 18px; accent-color: var(--accent); }
+.bfpanel { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel-2); }
+.bfpanel.hidden { display: none; }
+.bfhint { font-size: 12px; line-height: 1.4; margin-bottom: 8px; }
+.bfrow { display: flex; align-items: baseline; justify-content: space-between; margin-top: 6px; }
+.bfrow .val { font-size: 15px; font-weight: 600; }
+.bfrow .val small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.bfpanel input[type="range"] { height: 30px; }
+.bfoct { display: flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer; font-size: 12px; }
+.bfoct input { width: 16px; height: 16px; accent-color: var(--accent); flex: 0 0 auto; }
+#bfOctWrap.hidden { display: none; }
+
 .hidden { display: none !important; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
 kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; font-size: 12px; }
