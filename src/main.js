@@ -130,9 +130,9 @@ const state = {
   playing: false,
   // Bass Focus: a DSP bus (center-focus + resonant band-pass + low-shelf boost)
   // that lets you solo/emphasise the bass of a full mix without stems.
-  bassFocus: { solo: false, mix: 0, center: 70, freq: 120, q: 2, lowBoost: 0 },
+  bassFocus: { solo: false, mix: 0, channel: 'both', center: 70, freq: 120, q: 2, lowBoost: 0 },
 };
-const BASS_FOCUS_DEFAULTS = { solo: false, mix: 0, center: 70, freq: 120, q: 2, lowBoost: 0 };
+const BASS_FOCUS_DEFAULTS = { solo: false, mix: 0, channel: 'both', center: 70, freq: 120, q: 2, lowBoost: 0 };
 
 let wave;
 
@@ -237,7 +237,13 @@ function render() {
         <div class="bfhint muted">Hears the bass out of a full mix (no stems): centres the signal and rings out the low band.</div>
         <div class="bfrow"><span class="muted">Mix original back in</span><span class="val" id="bfMixVal">0<small>%</small></span></div>
         <input type="range" id="bfMix" min="0" max="100" step="1" value="0" />
-        <div class="bfrow"><span class="muted">Center focus (toward mono)</span><span class="val" id="bfCenterVal">70<small>%</small></span></div>
+        <div class="bfrow"><span class="muted">Channel</span><span class="muted bfsub">pick the side the bass is on</span></div>
+        <div class="presets bfchan">
+          <button class="chip" data-bfchan="left">Left</button>
+          <button class="chip" data-bfchan="both">Both</button>
+          <button class="chip" data-bfchan="right">Right</button>
+        </div>
+        <div class="bfrow" id="bfCenterRow"><span class="muted">Center focus (toward mono)</span><span class="val" id="bfCenterVal">70<small>%</small></span></div>
         <input type="range" id="bfCenter" min="0" max="100" step="1" value="70" />
         <div class="bfrow"><span class="muted">Focus frequency</span><span class="val" id="bfFreqVal">120<small> Hz</small></span></div>
         <input type="range" id="bfFreq" min="40" max="500" step="5" value="120" />
@@ -330,9 +336,11 @@ function ensureAudio() {
 }
 
 // ---------- Bass Focus (DSP bus) ----------
-// Graph:  busIn ─┬─► dry ─────────────────────────────────────────────► out
-//                └─► [stereo/mono crossfade] ─► band-pass ─► low-shelf ─► wet ─► out
-// Dry/wet gains implement the solo + mix-back-in. Center-focus crossfades toward
+// Graph:  busIn ─┬─► dry ──────────────────────────────────────────────────────────► out
+//                └─► [channel pick] ─► [stereo/mono crossfade] ─► band-pass ─► low-shelf ─► wet ─► out
+// Dry/wet gains implement the solo + mix-back-in. Channel pick passes both sides,
+// or just the left/right channel (for hard-panned stereo, e.g. 60s Blue Note,
+// where the bass sits on one side). Center-focus crossfades toward
 // mono (cancels side/stereo-spread content; bass is centred so it survives). The
 // band-pass rings out the bass register; the low-shelf lifts what sits below it.
 function buildBassFocus(ctx, out) {
@@ -343,6 +351,23 @@ function buildBassFocus(ctx, out) {
   busIn.connect(dry);
   dry.connect(out);
 
+  // channel pick: 'both' passes the stereo signal; 'left'/'right' pass one
+  // channel only (as mono, upmixed to both ears downstream)
+  const both = ctx.createGain();
+  busIn.connect(both);
+  const splitter = ctx.createChannelSplitter(2);
+  busIn.connect(splitter);
+  const leftG = ctx.createGain();
+  leftG.gain.value = 0;
+  const rightG = ctx.createGain();
+  rightG.gain.value = 0;
+  splitter.connect(leftG, 0);
+  splitter.connect(rightG, 1);
+  const picked = ctx.createGain();
+  both.connect(picked);
+  leftG.connect(picked);
+  rightG.connect(picked);
+
   // center focus: crossfade between full stereo and a mono downmix
   const stereoTap = ctx.createGain();
   stereoTap.gain.value = 0.3;
@@ -350,8 +375,8 @@ function buildBassFocus(ctx, out) {
   monoTap.gain.value = 0.7;
   monoTap.channelCountMode = 'explicit';
   monoTap.channelCount = 1; // forces a mono (0.5L+0.5R) downmix; side content cancels
-  busIn.connect(stereoTap);
-  busIn.connect(monoTap);
+  picked.connect(stereoTap);
+  picked.connect(monoTap);
   const center = ctx.createGain();
   stereoTap.connect(center);
   monoTap.connect(center);
@@ -375,7 +400,7 @@ function buildBassFocus(ctx, out) {
   lowShelf.connect(wet);
   wet.connect(out);
 
-  return { busIn, dry, stereoTap, monoTap, bp, lowShelf, wet };
+  return { busIn, dry, both, leftG, rightG, stereoTap, monoTap, bp, lowShelf, wet };
 }
 
 function applyBassFocus() {
@@ -385,6 +410,9 @@ function applyBassFocus() {
   if (!n || !ctx) return;
   const t = ctx.currentTime;
   const ramp = (p, v) => p.setTargetAtTime(v, t, 0.015);
+  ramp(n.both.gain, b.channel === 'both' ? 1 : 0);
+  ramp(n.leftG.gain, b.channel === 'left' ? 1 : 0);
+  ramp(n.rightG.gain, b.channel === 'right' ? 1 : 0);
   const f = b.center / 100; // mono amount
   ramp(n.monoTap.gain, f);
   ramp(n.stereoTap.gain, 1 - f);
@@ -830,6 +858,12 @@ function syncBassFocusUI() {
   set('#bfQ', Math.round(b.q * 10));
   set('#bfLow', b.lowBoost);
   $('#bfPanel').classList.toggle('hidden', !b.solo);
+  document.querySelectorAll('[data-bfchan]').forEach((c) => c.classList.toggle('on', c.dataset.bfchan === b.channel));
+  // a single channel is already mono, so center focus does nothing there
+  const oneSide = b.channel !== 'both';
+  $('#bfCenter').disabled = oneSide;
+  $('#bfCenterRow').classList.toggle('bfdim', oneSide);
+  $('#bfCenter').classList.toggle('bfdim', oneSide);
   $('#bfStateVal').textContent = b.solo ? 'on' : 'off';
   $('#bfMixVal').innerHTML = `${b.mix}<small>%</small>`;
   $('#bfCenterVal').innerHTML = `${b.center}<small>%</small>`;
@@ -1729,6 +1763,7 @@ function wireShell() {
   // Bass Focus
   $('#bfSolo').addEventListener('change', (e) => updateBassFocus({ solo: e.target.checked }));
   $('#bfMix').addEventListener('input', (e) => updateBassFocus({ mix: Number(e.target.value) }));
+  document.querySelectorAll('[data-bfchan]').forEach((c) => (c.onclick = () => updateBassFocus({ channel: c.dataset.bfchan })));
   $('#bfCenter').addEventListener('input', (e) => updateBassFocus({ center: Number(e.target.value) }));
   $('#bfFreq').addEventListener('input', (e) => updateBassFocus({ freq: Number(e.target.value) }));
   $('#bfQ').addEventListener('input', (e) => updateBassFocus({ q: Number(e.target.value) / 10 }));
