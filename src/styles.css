@@ -200,3 +200,29 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 #spanSeg .seg-btn { min-width: 34px; padding: 8px 10px; }
 .spaninput { width: 64px; min-height: 40px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--accent); background: var(--panel-2); color: var(--text); font-size: 15px; text-align: center; }
 .spaninput.hidden { display: none; }
+
+/* Player / empty-state header: title left, Library button top-right */
+#app { padding-top: 10px; }
+.playerhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.playerhead h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.libbtn { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; min-height: 38px; font-size: 14px; color: var(--text); }
+.libbtn:hover { border-color: var(--accent); }
+#app:has(#player:not(.hidden)) #emptyState { display: none; }
+
+/* Library drawer (slides in from the right) */
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 40; }
+.drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; height: 100dvh; width: min(420px, 92vw); z-index: 41;
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; padding-bottom: max(14px, env(safe-area-inset-bottom));
+  background: var(--panel); border-left: 1px solid var(--line); box-shadow: -12px 0 30px rgba(0, 0, 0, 0.4);
+  transform: translateX(100%); transition: transform 0.25s ease; }
+.drawer.open { transform: translateX(0); }
+.drawer-head { display: flex; align-items: center; gap: 8px; }
+.drawer-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 0; }
+.libsearch { width: 100%; min-height: 42px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 15px; }
+.libsearch:focus { outline: none; border-color: var(--accent); }
+.dropzone.compact { padding: 10px; font-size: 14px; cursor: pointer; }
+.drawer .songlist { flex: 1; min-height: 0; overflow-y: auto; margin-top: 0; padding-right: 2px; }
+.song .star { min-width: 36px; padding: 6px; font-size: 18px; line-height: 1; }
+.song .star.on { color: #ffc94d; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-backdrop { transition: none; } }

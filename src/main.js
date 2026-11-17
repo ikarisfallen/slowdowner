@@ -50,6 +50,7 @@ function mixBuffers(ctx, buffers) {
 const ICON_PLAY = `<svg class="ic-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.4086 9.35258C23.5305 10.5065 23.5305 13.4935 21.4086 14.6474L8.59662 21.6145C6.53435 22.736 4 21.2763 4 18.9671L4 5.0329C4 2.72368 6.53435 1.26402 8.59661 2.38548L21.4086 9.35258Z"/></svg>`;
 const ICON_PAUSE = `<svg class="ic-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 6C2 4.11438 2 3.17157 2.58579 2.58579C3.17157 2 4.11438 2 6 2C7.88562 2 8.82843 2 9.41421 2.58579C10 3.17157 10 4.11438 10 6V18C10 19.8856 10 20.8284 9.41421 21.4142C8.82843 22 7.88562 22 6 22C4.11438 22 3.17157 22 2.58579 21.4142C2 20.8284 2 19.8856 2 18V6Z"/><path d="M14 6C14 4.11438 14 3.17157 14.5858 2.58579C15.1716 2 16.1144 2 18 2C19.8856 2 20.8284 2 21.4142 2.58579C22 3.17157 22 4.11438 22 6V18C22 19.8856 22 20.8284 21.4142 21.4142C20.8284 22 19.8856 22 18 22C16.1144 22 15.1716 22 14.5858 21.4142C14 20.8284 14 19.8856 14 18V6Z"/></svg>`;
 const ICON_REWIND = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 12 20 5.5v13z"/><path d="M2 12 11 5.5v13z"/></svg>`;
+const ICON_LIBRARY = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`;
 const ICON_LOOP = `<svg viewBox="0 0 100 100" fill="currentColor" aria-hidden="true"><path d="M83.729,23.57c-0.007-0.562-0.32-1.084-0.825-1.337c-0.503-0.259-1.107-0.212-1.568,0.114l-5.944,4.262l-0.468,0.336c-6.405-6.391-15.196-10.389-24.938-10.389c-13.284,0-24.878,7.354-30.941,18.201l0.024,0.013c-0.548,1.183-0.124,2.607,1.026,3.271c0.001,0,0.001,0,0.002,0.001l8.136,4.697c1.218,0.704,2.777,0.287,3.48-0.932c0.006-0.011,0.009-0.023,0.015-0.034c3.591-6.404,10.438-10.747,18.289-10.747c4.879,0,9.352,1.696,12.914,4.5l-1.001,0.719l-5.948,4.262c-0.455,0.327-0.696,0.89-0.611,1.447c0.081,0.558,0.471,1.028,1.008,1.208l25.447,8.669c0.461,0.162,0.966,0.084,1.367-0.203c0.399-0.29,0.629-0.746,0.627-1.23L83.729,23.57z"/><path d="M79.904,61.958c0,0-0.001,0-0.002-0.001l-8.136-4.697c-1.218-0.704-2.777-0.287-3.48,0.932c-0.006,0.011-0.009,0.023-0.015,0.034c-3.591,6.404-10.438,10.747-18.289,10.747c-4.879,0-9.352-1.696-12.914-4.5l1.001-0.719l5.948-4.262c0.455-0.327,0.696-0.89,0.611-1.447c-0.081-0.558-0.471-1.028-1.008-1.208l-25.447-8.669c-0.461-0.162-0.966-0.084-1.367,0.203c-0.399,0.29-0.629,0.746-0.627,1.23l0.092,26.828c0.007,0.562,0.32,1.084,0.825,1.337c0.503,0.259,1.107,0.212,1.568-0.114l5.944-4.262l0.468-0.336c6.405,6.391,15.196,10.389,24.938,10.389c13.284,0,24.878-7.354,30.941-18.201L80.93,65.23C81.478,64.046,81.055,62.623,79.904,61.958z"/></svg>`;
 
 function setPlayIcon(playing) {
@@ -114,7 +115,7 @@ const state = {
   selectedSections: new Set(),
   sectionsExpanded: false,
   librarySearch: '',
-  libraryExpanded: false,
+  libraryOpen: false,
   markers: [],
   selectedMarkers: new Set(),
   markersExpanded: false,
@@ -141,28 +142,35 @@ let wave;
 function render() {
   const app = $('#app');
   app.innerHTML = `
-  <div class="topbar">
-    <div class="brand"><div class="logo">🎧</div><h1>Slowdowner</h1></div>
-    <div class="spacer"></div>
-    <button class="btn ghost hidden" id="installBtn">Install</button>
-  </div>
-
-  <div class="panel">
-    <h2>Library</h2>
-    <button class="disclosure" id="libraryToggle"><span id="libraryChev">▸</span> <span id="libraryToggleLabel">Show library</span></button>
-    <div id="libraryPanel" class="hidden">
-      <input id="librarySearch" class="btn" style="width:100%; margin-bottom:8px" placeholder="Filter songs…" />
-      <label class="dropzone" id="dropzone">
-        <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac" multiple hidden />
-        <div><strong>Tap to add songs</strong> or drop audio files here</div>
-        <div class="muted" style="font-size:12px;margin-top:4px">Stored on this device · works offline</div>
-      </label>
-      <div class="songlist scroll" id="songlist"></div>
+  <div class="drawer-backdrop" id="libBackdrop"></div>
+  <aside class="drawer" id="libDrawer" aria-label="Library" inert>
+    <div class="drawer-head">
+      <h2>Library <span class="muted" id="libCount"></span></h2>
+      <span style="flex:1"></span>
+      <button class="btn ghost hidden" id="installBtn">Install</button>
+      <button class="iconbtn" id="libraryClose" title="Close (Esc)" aria-label="Close library">✕</button>
     </div>
+    <input id="librarySearch" type="search" class="libsearch" placeholder="Search songs…" autocomplete="off" aria-label="Search songs" />
+    <label class="dropzone compact" id="dropzone">
+      <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac" multiple hidden />
+      <strong>＋ Add songs</strong> <span class="muted">or drop audio files here</span>
+    </label>
+    <div class="songlist" id="songlist"></div>
+  </aside>
+
+  <div class="panel" id="emptyState">
+    <div class="playerhead">
+      <h2>Slowdowner</h2>
+      <button class="libbtn" data-open-library title="Open library">${ICON_LIBRARY}<span>Library</span></button>
+    </div>
+    <div class="muted" style="font-size:14px">Open the library to pick a song or add new ones.</div>
   </div>
 
   <div class="panel hidden" id="player">
-    <h2 id="songTitle">—</h2>
+    <div class="playerhead">
+      <h2 id="songTitle">—</h2>
+      <button class="libbtn" data-open-library title="Open library">${ICON_LIBRARY}<span>Library</span></button>
+    </div>
     <div class="wavewrap"><canvas class="wave" id="wave"></canvas><div class="waveloading hidden" id="waveLoading"><span class="spin">⟳</span> <span id="waveLoadingText">Loading…</span></div></div>
     <div class="wavetools">
       <button class="btn" id="setA" title="Set loop start (A)">[</button>
@@ -1597,20 +1605,35 @@ async function connectDrive() {
     toast('Google sign-in failed: ' + e.message);
   }
 }
-function toggleLibraryPanel(force) {
-  state.libraryExpanded = force != null ? force : !state.libraryExpanded;
-  $('#libraryPanel').classList.toggle('hidden', !state.libraryExpanded);
-  const chev = $('#libraryChev');
-  if (chev) chev.style.transform = state.libraryExpanded ? 'rotate(90deg)' : 'none';
+// Library drawer: slides in from the right; the search box gets focus on open.
+function openLibrary() {
+  state.libraryOpen = true;
+  const drawer = $('#libDrawer');
+  drawer.inert = false;
+  drawer.classList.add('open');
+  $('#libBackdrop').classList.add('open');
+  const search = $('#librarySearch');
+  search.focus({ preventScroll: true }); // synchronous, so phones raise the keyboard
+  search.select();
   renderSongList();
 }
+function closeLibrary() {
+  state.libraryOpen = false;
+  const drawer = $('#libDrawer');
+  drawer.classList.remove('open');
+  $('#libBackdrop').classList.remove('open');
+  if (drawer.contains(document.activeElement)) document.activeElement.blur();
+  drawer.inert = true;
+}
+const isFavorite = (s) => !!s.settings?.favorite;
 async function renderSongList() {
   const list = $('#songlist');
   const all = await db.getSongs();
-  const label = $('#libraryToggleLabel');
-  if (label) label.textContent = `${state.libraryExpanded ? 'Hide' : 'Show'} library (${all.length})`;
+  const count = $('#libCount');
+  if (count) count.textContent = all.length ? `(${all.length})` : '';
   const q = state.librarySearch.trim().toLowerCase();
-  const songs = q ? all.filter((s) => s.name.toLowerCase().includes(q)) : all;
+  const songs = (q ? all.filter((s) => s.name.toLowerCase().includes(q)) : all)
+    .sort((a, b) => isFavorite(b) - isFavorite(a)); // favorites first; stable, so newest-first within each group
   list.innerHTML = '';
   if (!all.length) {
     list.innerHTML = `<div class="muted" style="font-size:13px;padding:6px">Your library is empty.</div>`;
@@ -1623,11 +1646,23 @@ async function renderSongList() {
   for (const s of songs) {
     const row = el(`
       <div class="song ${state.song?.id === s.id ? 'active' : ''}">
+        <button class="iconbtn star ${isFavorite(s) ? 'on' : ''}" title="${isFavorite(s) ? 'Unfavorite' : 'Favorite'}" aria-pressed="${isFavorite(s)}">${isFavorite(s) ? '★' : '☆'}</button>
         <div class="title">${escapeHtml(s.name)}${s.tracks && s.tracks.length > 1 ? ` <span class="muted" style="font-size:11px">· ${s.tracks.length} tracks</span>` : ''}${s.driveFileId && !s.blob ? ' <span class="muted" style="font-size:11px">☁︎</span>' : ''}</div>
         <div class="dur mono">${s.duration ? fmt(s.duration) : '—'}</div>
         <button class="iconbtn" title="Delete">🗑</button>
       </div>`);
-    row.onclick = () => { loadSong(s); if (state.libraryExpanded) toggleLibraryPanel(false); }; // load (no play) + collapse library
+    row.onclick = () => { // load (no play), close the drawer, and reset the search for next time
+      loadSong(s);
+      closeLibrary();
+      state.librarySearch = '';
+      $('#librarySearch').value = '';
+    };
+    row.querySelector('.star').onclick = async (e) => {
+      e.stopPropagation();
+      await db.updateSongSettings(s.id, { favorite: !isFavorite(s) }); // settings sync via the Drive manifest
+      renderSongList();
+      schedulePush();
+    };
     row.querySelector('button[title="Delete"]').onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete “${s.name}” and its saved sections?`)) return;
@@ -1722,7 +1757,9 @@ function wireShell() {
     if (document.visibilityState === 'visible' && state.playing) acquireWakeLock();
   });
 
-  $('#libraryToggle').onclick = () => toggleLibraryPanel();
+  document.querySelectorAll('[data-open-library]').forEach((b) => (b.onclick = () => openLibrary()));
+  $('#libraryClose').onclick = () => closeLibrary();
+  $('#libBackdrop').onclick = () => closeLibrary();
   $('#librarySearch').addEventListener('input', (e) => { state.librarySearch = e.target.value; renderSongList(); });
 
   const fileInput = $('#fileInput');
@@ -1796,6 +1833,7 @@ function wireShell() {
 
 
   window.addEventListener('keydown', (e) => {
+    if (state.libraryOpen) { if (e.key === 'Escape') closeLibrary(); return; } // no player shortcuts behind the drawer
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.code === 'ArrowLeft') nudge(e.shiftKey ? -1 : -5);
