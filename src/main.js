@@ -177,11 +177,15 @@ function syncSegLine(id, value) {
   $(`#${id}Down`).disabled = value <= Number(inp.min);
 }
 function wireSegLine(id, get, set) {
-  const inp = $(`#${id}Custom`);
   document.querySelectorAll(`[data-${id}]`).forEach((b) => (b.onclick = () => set(Number(b.dataset[id]))));
   $(`#${id}Up`).onclick = () => set(get() + 1);
   $(`#${id}Down`).onclick = () => set(get() - 1);
-  inp.addEventListener('focus', () => { inp.select(); syncSegLine(id, get()); });
+  wireSegField(id, get, set, () => syncSegLine(id, get()));
+}
+// The typed number field of a keypad line.
+function wireSegField(id, get, set, sync) {
+  const inp = $(`#${id}Custom`);
+  inp.addEventListener('focus', () => { inp.select(); sync(); });
   // apply as you type only once the number is in range (typing "7" on the way to "75" must not jump to 25)
   inp.addEventListener('input', () => {
     const v = parseInt(inp.value, 10);
@@ -192,7 +196,17 @@ function wireSegLine(id, get, set) {
     if (!isNaN(v)) set(v); // out of range: set() clamps it
     inp.value = String(get());
   });
-  inp.addEventListener('blur', () => syncSegLine(id, get()));
+  inp.addEventListener('blur', () => sync());
+}
+// Pitch: −12 −1 [value] +1 +12 — the buttons step from the current value.
+function syncPitchLine() {
+  const inp = $('#pitchCustom');
+  if (!inp) return;
+  if (document.activeElement !== inp) inp.value = String(state.pitch);
+  $('#pitchField').classList.toggle('on', state.pitch !== 0); // lit whenever the pitch is shifted
+  document.querySelectorAll('[data-pitchstep]').forEach((b) => {
+    b.disabled = Number(b.dataset.pitchstep) < 0 ? state.pitch <= -12 : state.pitch >= 12;
+  });
 }
 
 // ---------- shell ----------
@@ -286,7 +300,16 @@ function render() {
 
     <div class="control">
       ${segLine({ id: 'speed', label: 'Speed<small>%</small>', values: [50, 65, 75, 85, 100], min: 25, max: 150, title: 'Playback speed (%)' })}
-      ${segLine({ id: 'pitch', label: 'Pitch', values: [-1, 0, 1, 12], fmt: (v) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0'), min: -12, max: 12, title: 'Pitch (semitones)' })}
+      <div class="ctlrow" title="Pitch (semitones)">
+        <span class="ctllabel muted">Pitch</span>
+        <div class="segline" id="pitchSeg">
+          <button class="seg-btn" data-pitchstep="-12" title="Down an octave">−12</button>
+          <button class="seg-btn" data-pitchstep="-1" title="Down a semitone">−1</button>
+          <div class="spanfield pitchfield" id="pitchField"><input type="number" id="pitchCustom" class="spaninput" min="-12" max="12" step="1" aria-label="Pitch (semitones)" /></div>
+          <button class="seg-btn" data-pitchstep="1" title="Up a semitone">+1</button>
+          <button class="seg-btn" data-pitchstep="12" title="Up an octave">+12</button>
+        </div>
+      </div>
     </div>
 
     <div class="control eqctl">
@@ -715,7 +738,7 @@ function setSpeed(pct) {
 }
 function setPitch(st) {
   state.pitch = Math.max(-12, Math.min(12, Math.round(st)));
-  syncSegLine('pitch', state.pitch);
+  syncPitchLine();
   state.engine?.setPitch(state.pitch);
   persistSettings();
 }
@@ -1792,7 +1815,8 @@ function wireShell() {
 
   wireSegLine('speed', () => Math.round(state.speed * 100), setSpeed);
 
-  wireSegLine('pitch', () => state.pitch, setPitch);
+  document.querySelectorAll('[data-pitchstep]').forEach((b) => (b.onclick = () => setPitch(state.pitch + Number(b.dataset.pitchstep))));
+  wireSegField('pitch', () => state.pitch, setPitch, syncPitchLine);
 
   initEqUI();
 

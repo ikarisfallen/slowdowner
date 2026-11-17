@@ -284,3 +284,5 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .segline { flex: 1; min-width: 0; display: flex; height: 44px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .segline .seg-btn { flex: 1; min-width: 0; min-height: 0; padding: 0; font-size: 14px; }
 .segline .spanfield { flex: 1.8; }
+.segline .pitchfield { flex: 1.3; }
+.segline .pitchfield .spaninput { font-size: 15px; }
