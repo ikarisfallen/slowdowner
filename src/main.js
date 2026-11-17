@@ -145,6 +145,8 @@ let wave;
 
 // One-line keypad: preset buttons + a number field with stepper arrows (the
 // same look as the loop-size keypad). Buttons carry data-<id>="<value>".
+// back-arrow with a U-turn: "reset"
+const ICON_RESET = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9.5 5.5 5 10l4.5 4.5"/><path d="M5 10h9.5a4.25 4.25 0 0 1 0 8.5H11"/></svg>`;
 const ICON_STEP_UP = `<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON_STEP_DOWN = `<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 function segLine({ id, label, values, fmt = String, min, max, title }) {
@@ -207,6 +209,7 @@ function syncPitchLine() {
   document.querySelectorAll('[data-pitchstep]').forEach((b) => {
     b.disabled = Number(b.dataset.pitchstep) < 0 ? state.pitch <= -12 : state.pitch >= 12;
   });
+  $('#pitchReset').disabled = state.pitch === 0;
 }
 
 // ---------- shell ----------
@@ -308,6 +311,7 @@ function render() {
           <div class="spanfield pitchfield" id="pitchField"><input type="number" id="pitchCustom" class="spaninput" min="-12" max="12" step="1" aria-label="Pitch (semitones)" /></div>
           <button class="seg-btn" data-pitchstep="1" title="Up a semitone">+1</button>
           <button class="seg-btn" data-pitchstep="12" title="Up an octave">+12</button>
+          <button class="seg-btn segicon" id="pitchReset" title="Reset pitch to 0" aria-label="Reset pitch to 0">${ICON_RESET}</button>
         </div>
       </div>
     </div>
@@ -1817,6 +1821,7 @@ function wireShell() {
 
   document.querySelectorAll('[data-pitchstep]').forEach((b) => (b.onclick = () => setPitch(state.pitch + Number(b.dataset.pitchstep))));
   wireSegField('pitch', () => state.pitch, setPitch, syncPitchLine);
+  $('#pitchReset').onclick = () => setPitch(0);
 
   initEqUI();
 
