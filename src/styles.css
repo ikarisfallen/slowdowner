@@ -288,3 +288,5 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .segline .pitchfield .spaninput { font-size: 15px; }
 .segline .segicon { display: grid; place-items: center; }
 .segline .seg-btn:disabled { opacity: 0.35; cursor: default; }
+/* Installed app on a phone: tap/keyboard tips aren't useful there */
+@media (display-mode: standalone) and (pointer: coarse) { .hint { display: none; } }
