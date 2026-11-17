@@ -184,24 +184,28 @@ function render() {
     </div>
     <div class="timerow"><span class="mono" id="curTime">0:00</span><span class="mono muted" id="loopReadout">No loop set</span><span class="mono muted" id="durTime">0:00</span></div>
 
-    <div class="transport2">
-      <button class="btn rndbtn" id="toStart" title="Back to start">⏮</button>
-      <button class="btn rndbtn rwbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
-      <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
-      <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead, or your A/B range">${ICON_LOOP}</button>
-    </div>
-
-    <div class="transport2">
-      <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.) — moves the loop when a marker loop is on">▶</button></span>
-      <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
-    </div>
-
-    <div class="transport2">
-      <span class="seg" id="spanSeg" title="Loop span size (markers)">
-        ${[1, 2, 3, 4, 5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
-        <button class="seg-btn" id="spanCustomBtn" title="Custom span size">Custom</button>
-      </span>
-      <input type="number" id="spanCustom" class="spaninput hidden" min="1" step="1" inputmode="numeric" aria-label="Custom loop span size" />
+    <div class="navgrid">
+      <div class="navcol">
+        <div class="transport2">
+          <button class="btn rndbtn" id="toStart" title="Back to start">⏮</button>
+          <button class="btn rndbtn rwbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
+          <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
+          <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead, or your A/B range">${ICON_LOOP}</button>
+        </div>
+        <div class="transport2">
+          <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.) — moves the loop when a marker loop is on">▶</button></span>
+          <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
+        </div>
+      </div>
+      <div class="spanblock" id="spanSeg" title="Loop size (in markers)">
+        <div class="seg spanrow">
+          ${[1, 2, 3].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
+        </div>
+        <div class="seg spanrow">
+          <button class="seg-btn" id="spanCustomBtn" title="Custom loop size">Custom</button>
+          <input type="number" id="spanCustom" class="spaninput" min="1" step="1" inputmode="numeric" aria-label="Custom loop size" />
+        </div>
+      </div>
     </div>
 
     <div id="trackMix" class="trackmix hidden"></div>
@@ -650,12 +654,17 @@ async function loadSong(song, { autoplay = false } = {}) {
   state.markerWinIdx = 0;
   wave.setState({ markers: state.markers });
 
+  // Loop is on by default: the first marker span (the playhead moves to marker 1),
+  // or the whole song when there aren't enough markers.
+  if (state.span > Math.max(1, state.markers.length - 1)) state.span = Math.max(1, state.markers.length - 1);
+  toggleLoop(true);
+
   applyEngineParams();
   syncControls();
   renderSavedLoops();
   renderMarkers();
   renderSongList();
-  updatePlayhead(0);
+  updatePlayhead(state.engine.getPosition()); // 0, or marker 1 when the default loop starts there
   setMediaMetadata(song);
   hideWaveLoading();
 
@@ -1194,7 +1203,7 @@ function setSpan(n) {
 }
 function updateSpanSelect() {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  const custom = state.spanCustomOpen || state.span > 6;
+  const custom = state.spanCustomOpen || state.span > 3;
   document.querySelectorAll('#spanSeg [data-span]').forEach((b) => {
     const n = Number(b.dataset.span);
     b.disabled = n > maxSpan;
@@ -1204,7 +1213,6 @@ function updateSpanSelect() {
   const inp = $('#spanCustom');
   if (!btn || !inp) return;
   btn.classList.toggle('on', custom);
-  inp.classList.toggle('hidden', !custom);
   inp.max = String(maxSpan);
   if (document.activeElement !== inp) inp.value = String(state.span);
 }
@@ -1240,6 +1248,8 @@ function applyMarkerLoop({ play = false, seekToStart = true } = {}) {
   state.activeLoopId = null;
   applyEngineParams();
   const pos = state.engine ? state.engine.getPosition() : start;
+  // Outside the span, move the playhead to its start (the engine would jump
+  // there on play anyway); inside it, keep going from where we are.
   if (seekToStart || pos < start || pos > end) {
     state.engine?.seek(start);
     updatePlayhead(start);
@@ -1819,11 +1829,13 @@ function wireShell() {
     $('#spanCustom').focus();
     $('#spanCustom').select();
   };
+  $('#spanCustom').addEventListener('focus', () => { state.spanCustomOpen = true; updateSpanSelect(); });
   $('#spanCustom').addEventListener('input', (e) => {
     const v = parseInt(e.target.value, 10);
     if (v >= 1) setSpan(v);
   });
   $('#spanCustom').addEventListener('change', (e) => { e.target.value = String(state.span); }); // show the clamped value
+  $('#spanCustom').addEventListener('blur', () => { state.spanCustomOpen = false; updateSpanSelect(); }); // 1-3 get their button back
 
   $('#speed').addEventListener('input', (e) => setSpeed(Number(e.target.value)));
   document.querySelectorAll('[data-speed]').forEach((c) => (c.onclick = () => setSpeed(Number(c.dataset.speed))));
