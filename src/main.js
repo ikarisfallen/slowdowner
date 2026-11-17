@@ -143,6 +143,58 @@ const state = {
 
 let wave;
 
+// One-line keypad: preset buttons + a number field with stepper arrows (the
+// same look as the loop-size keypad). Buttons carry data-<id>="<value>".
+const ICON_STEP_UP = `<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON_STEP_DOWN = `<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+function segLine({ id, label, values, fmt = String, min, max, title }) {
+  return `<div class="ctlrow" title="${title}">
+        <span class="ctllabel muted">${label}</span>
+        <div class="segline" id="${id}Seg">
+          ${values.map((v) => `<button class="seg-btn" data-${id}="${v}">${fmt(v)}</button>`).join('')}
+          <div class="spanfield" id="${id}Field">
+            <input type="number" id="${id}Custom" class="spaninput" min="${min}" max="${max}" step="1"${min >= 0 ? ' inputmode="numeric"' : ''} aria-label="${title}" />
+            <span class="spinbtns"><button class="spinbtn" id="${id}Up" tabindex="-1" aria-label="Increase">${ICON_STEP_UP}</button><button class="spinbtn" id="${id}Down" tabindex="-1" aria-label="Decrease">${ICON_STEP_DOWN}</button></span>
+          </div>
+        </div>
+      </div>`;
+}
+// Highlight the matching button, or the field when the value isn't a preset
+// (or while you're typing in it); keep the field showing the current value.
+function syncSegLine(id, value) {
+  const inp = $(`#${id}Custom`);
+  if (!inp) return;
+  const typing = document.activeElement === inp;
+  let match = false;
+  document.querySelectorAll(`[data-${id}]`).forEach((b) => {
+    const on = Number(b.dataset[id]) === value;
+    if (on) match = true;
+    b.classList.toggle('on', on && !typing);
+  });
+  $(`#${id}Field`).classList.toggle('on', !match || typing);
+  if (!typing) inp.value = String(value);
+  $(`#${id}Up`).disabled = value >= Number(inp.max);
+  $(`#${id}Down`).disabled = value <= Number(inp.min);
+}
+function wireSegLine(id, get, set) {
+  const inp = $(`#${id}Custom`);
+  document.querySelectorAll(`[data-${id}]`).forEach((b) => (b.onclick = () => set(Number(b.dataset[id]))));
+  $(`#${id}Up`).onclick = () => set(get() + 1);
+  $(`#${id}Down`).onclick = () => set(get() - 1);
+  inp.addEventListener('focus', () => { inp.select(); syncSegLine(id, get()); });
+  // apply as you type only once the number is in range (typing "7" on the way to "75" must not jump to 25)
+  inp.addEventListener('input', () => {
+    const v = parseInt(inp.value, 10);
+    if (!isNaN(v) && v >= Number(inp.min) && v <= Number(inp.max)) set(v);
+  });
+  inp.addEventListener('change', () => {
+    const v = parseInt(inp.value, 10);
+    if (!isNaN(v)) set(v); // out of range: set() clamps it
+    inp.value = String(get());
+  });
+  inp.addEventListener('blur', () => syncSegLine(id, get()));
+}
+
 // ---------- shell ----------
 function render() {
   const app = $('#app');
@@ -233,22 +285,8 @@ function render() {
     </div>
 
     <div class="control">
-      <div class="head"><span class="muted">Speed</span><span class="val" id="speedVal">100<small>%</small></span></div>
-      <input type="range" id="speed" min="25" max="150" step="1" value="100" />
-      <div class="presets" style="margin-top:6px">
-        ${[50, 65, 75, 85, 100].map((p) => `<button class="chip" data-speed="${p}">${p}%</button>`).join('')}
-      </div>
-    </div>
-
-    <div class="control">
-      <div class="head"><span class="muted">Pitch</span><span class="val" id="pitchVal">0<small> st</small></span></div>
-      <input type="range" id="pitch" min="-12" max="12" step="1" value="0" />
-      <div class="presets" style="margin-top:6px">
-        <button class="chip" data-pitch="0">Reset</button>
-        <button class="chip" data-pitch="-1">−1</button>
-        <button class="chip" data-pitch="1">+1</button>
-        <button class="chip" data-pitch="12" title="Up an octave">+12</button>
-      </div>
+      ${segLine({ id: 'speed', label: 'Speed<small>%</small>', values: [50, 65, 75, 85, 100], min: 25, max: 150, title: 'Playback speed (%)' })}
+      ${segLine({ id: 'pitch', label: 'Pitch', values: [-1, 0, 1, 12], fmt: (v) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0'), min: -12, max: 12, title: 'Pitch (semitones)' })}
     </div>
 
     <div class="control eqctl">
@@ -671,23 +709,15 @@ function nudge(delta) {
 // ---------- controls ----------
 function setSpeed(pct) {
   state.speed = Math.max(25, Math.min(150, Math.round(pct))) / 100;
-  $('#speed').value = Math.round(state.speed * 100);
-  $('#speedVal').innerHTML = `${Math.round(state.speed * 100)}<small>%</small>`;
+  syncSegLine('speed', Math.round(state.speed * 100));
   state.engine?.setSpeed(state.speed);
-  syncSpeedChips();
   persistSettings();
 }
 function setPitch(st) {
   state.pitch = Math.max(-12, Math.min(12, Math.round(st)));
-  $('#pitch').value = state.pitch;
-  $('#pitchVal').innerHTML = `${state.pitch > 0 ? '+' : ''}${state.pitch}<small> st</small>`;
+  syncSegLine('pitch', state.pitch);
   state.engine?.setPitch(state.pitch);
   persistSettings();
-}
-function syncSpeedChips() {
-  document.querySelectorAll('[data-speed]').forEach((c) =>
-    c.classList.toggle('on', Number(c.dataset.speed) === Math.round(state.speed * 100))
-  );
 }
 function syncControls() {
   setSpeed(state.speed * 100);
@@ -1760,11 +1790,9 @@ function wireShell() {
   $('#spanCustom').addEventListener('change', (e) => { e.target.value = String(state.span); }); // show the clamped value
   $('#spanCustom').addEventListener('blur', () => { state.spanCustomOpen = false; updateSpanSelect(); }); // 1-6 get their button back
 
-  $('#speed').addEventListener('input', (e) => setSpeed(Number(e.target.value)));
-  document.querySelectorAll('[data-speed]').forEach((c) => (c.onclick = () => setSpeed(Number(c.dataset.speed))));
+  wireSegLine('speed', () => Math.round(state.speed * 100), setSpeed);
 
-  $('#pitch').addEventListener('input', (e) => setPitch(Number(e.target.value)));
-  document.querySelectorAll('[data-pitch]').forEach((c) => (c.onclick = () => setPitch(Number(c.dataset.pitch))));
+  wireSegLine('pitch', () => state.pitch, setPitch);
 
   initEqUI();
 

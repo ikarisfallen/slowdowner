@@ -275,3 +275,12 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 #toStart, #loopToggle { width: 34px; height: 46px; min-height: 46px; padding: 0; border-radius: 9px; font-size: 15px; }
 #loopToggle svg { width: 17px; height: 17px; }
 #prevMarker, #addMarker, #nextMarker, #deleteCurrentMarker { width: 42px; padding: 0; justify-content: center; }
+
+/* Speed / Pitch: label + one-line keypad (presets + number field) */
+.ctlrow { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.ctlrow:first-child { margin-top: 0; }
+.ctllabel { width: 58px; flex: none; font-size: 14px; }
+.ctllabel small { font-size: 11px; margin-left: 2px; }
+.segline { flex: 1; min-width: 0; display: flex; height: 44px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.segline .seg-btn { flex: 1; min-width: 0; min-height: 0; padding: 0; font-size: 14px; }
+.segline .spanfield { flex: 1.8; }
