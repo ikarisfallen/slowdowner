@@ -302,7 +302,7 @@ function render() {
     </div>
 
     <div class="control">
-      ${segLine({ id: 'speed', label: 'Speed<small>%</small>', values: [50, 65, 75, 85, 100], min: 25, max: 150, title: 'Playback speed (%)' })}
+      ${segLine({ id: 'speed', label: 'Speed', values: [50, 65, 75, 85, 100], min: 25, max: 150, title: 'Playback speed (%)' })}
       <div class="ctlrow" title="Pitch (semitones)">
         <span class="ctllabel muted">Pitch</span>
         <div class="segline" id="pitchSeg">
