@@ -158,20 +158,33 @@ input[type="range"] { width: 100%; height: 34px; accent-color: var(--accent); }
 .trackpitch .tpval { width: 48px; text-align: right; font-size: 13px; }
 .trackpitch .chip { min-height: 32px; padding: 5px 10px; font-size: 12px; }
 
-/* Bass Focus */
-.bfhead { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.bfhead input { width: 18px; height: 18px; accent-color: var(--accent); }
-.bfpanel { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel-2); }
-.bfpanel.hidden { display: none; }
-.bfhint { font-size: 12px; line-height: 1.4; margin-bottom: 8px; }
-.bfrow { display: flex; align-items: baseline; justify-content: space-between; margin-top: 6px; }
-.bfrow .val { font-size: 15px; font-weight: 600; }
-.bfrow .val small { font-size: 12px; color: var(--muted); font-weight: 400; }
-.bfpanel input[type="range"] { height: 30px; }
-.bfsub { font-size: 12px; }
-.bfchan { margin-top: 6px; }
-.bfchan .chip { min-width: 72px; }
-.bfdim { opacity: 0.4; }
+/* Visual EQ */
+.eqhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.eqhead .disclosure { font-weight: 600; color: var(--text); }
+.eqon { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.eqon input, .eqbandon input { width: 18px; height: 18px; accent-color: var(--accent); }
+.eqselect { min-height: 38px; max-width: 160px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: 14px; }
+.eqhead .iconbtn { min-width: 38px; min-height: 38px; padding: 6px; display: grid; place-items: center; }
+.eqhead .iconbtn:disabled { opacity: 0.35; cursor: default; }
+.eqpanel { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 8px; background: var(--panel-2); }
+.eqpanel.hidden { display: none; }
+.eqcanvas { display: block; width: 100%; height: 190px; border-radius: 8px; background: var(--bg); touch-action: none; cursor: pointer; }
+.eqbands { display: flex; gap: 6px; margin-top: 8px; }
+.eqchip { flex: 1; min-height: 36px; border-radius: 8px; border: 2px solid var(--c); background: var(--c); color: #111; font-weight: 700; padding: 0; }
+.eqchip.off { background: transparent; color: var(--c); opacity: 0.6; }
+.eqchip.sel { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 4px #fff; }
+.eqedit { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.eqrow { display: grid; grid-template-columns: 52px 1fr 70px; align-items: center; gap: 8px; }
+.eqrow > .muted { font-size: 13px; }
+.eqrow input[type="range"] { height: 32px; }
+.eqrow-top { grid-template-columns: auto 1fr auto; margin-bottom: 4px; }
+.eqrow-top .eqselect { max-width: none; width: 100%; }
+.eqbandon { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.eqreset { min-height: 38px; padding: 6px 10px; font-size: 13px; }
+.eqval { font-size: 13px; text-align: right; }
+.eqdim { opacity: 0.35; }
+.eqhint { font-size: 12px; line-height: 1.4; margin-top: 6px; }
 
 .hidden { display: none !important; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }

@@ -1,6 +1,7 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
+import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
 
@@ -51,6 +52,8 @@ const ICON_PLAY = `<svg class="ic-play" viewBox="0 0 24 24" fill="currentColor" 
 const ICON_PAUSE = `<svg class="ic-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 6C2 4.11438 2 3.17157 2.58579 2.58579C3.17157 2 4.11438 2 6 2C7.88562 2 8.82843 2 9.41421 2.58579C10 3.17157 10 4.11438 10 6V18C10 19.8856 10 20.8284 9.41421 21.4142C8.82843 22 7.88562 22 6 22C4.11438 22 3.17157 22 2.58579 21.4142C2 20.8284 2 19.8856 2 18V6Z"/><path d="M14 6C14 4.11438 14 3.17157 14.5858 2.58579C15.1716 2 16.1144 2 18 2C19.8856 2 20.8284 2 21.4142 2.58579C22 3.17157 22 4.11438 22 6V18C22 19.8856 22 20.8284 21.4142 21.4142C20.8284 22 19.8856 22 18 22C16.1144 22 15.1716 22 14.5858 21.4142C14 20.8284 14 19.8856 14 18V6Z"/></svg>`;
 const ICON_REWIND = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 12 20 5.5v13z"/><path d="M2 12 11 5.5v13z"/></svg>`;
 const ICON_LIBRARY = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`;
+const ICON_SAVE = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>`;
+const ICON_TRASH = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>`;
 const ICON_FRAME = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5v14M20 5v14M8 12h8M10.5 9.5 8 12l2.5 2.5M13.5 9.5 16 12l-2.5 2.5"/></svg>`;
 const ICON_LOOP = `<svg viewBox="0 0 100 100" fill="currentColor" aria-hidden="true"><path d="M83.729,23.57c-0.007-0.562-0.32-1.084-0.825-1.337c-0.503-0.259-1.107-0.212-1.568,0.114l-5.944,4.262l-0.468,0.336c-6.405-6.391-15.196-10.389-24.938-10.389c-13.284,0-24.878,7.354-30.941,18.201l0.024,0.013c-0.548,1.183-0.124,2.607,1.026,3.271c0.001,0,0.001,0,0.002,0.001l8.136,4.697c1.218,0.704,2.777,0.287,3.48-0.932c0.006-0.011,0.009-0.023,0.015-0.034c3.591-6.404,10.438-10.747,18.289-10.747c4.879,0,9.352,1.696,12.914,4.5l-1.001,0.719l-5.948,4.262c-0.455,0.327-0.696,0.89-0.611,1.447c0.081,0.558,0.471,1.028,1.008,1.208l25.447,8.669c0.461,0.162,0.966,0.084,1.367-0.203c0.399-0.29,0.629-0.746,0.627-1.23L83.729,23.57z"/><path d="M79.904,61.958c0,0-0.001,0-0.002-0.001l-8.136-4.697c-1.218-0.704-2.777-0.287-3.48,0.932c-0.006,0.011-0.009,0.023-0.015,0.034c-3.591,6.404-10.438,10.747-18.289,10.747c-4.879,0-9.352-1.696-12.914-4.5l1.001-0.719l5.948-4.262c0.455-0.327,0.696-0.89,0.611-1.447c-0.081-0.558-0.471-1.028-1.008-1.208l-25.447-8.669c-0.461-0.162-0.966-0.084-1.367,0.203c-0.399,0.29-0.629,0.746-0.627,1.23l0.092,26.828c0.007,0.562,0.32,1.084,0.825,1.337c0.503,0.259,1.107,0.212,1.568-0.114l5.944-4.262l0.468-0.336c6.405,6.391,15.196,10.389,24.938,10.389c13.284,0,24.878-7.354,30.941-18.201L80.93,65.23C81.478,64.046,81.055,62.623,79.904,61.958z"/></svg>`;
 
@@ -128,11 +131,12 @@ const state = {
   pitch: 0,
   volume: 1, // output gain multiplier (boost quiet stems)
   playing: false,
-  // Bass Focus: a DSP bus (center-focus + resonant band-pass + low-shelf boost)
-  // that lets you solo/emphasise the bass of a full mix without stems.
-  bassFocus: { solo: false, mix: 0, channel: 'both', center: 70, freq: 120, q: 2, lowBoost: 0 },
+  // Visual EQ: this song's settings, the selected band, and the saved presets
+  eq: normalizeEq(null),
+  eqSel: 2,
+  eqPresets: loadEqPresets(),
+  eqExpanded: false,
 };
-const BASS_FOCUS_DEFAULTS = { solo: false, mix: 0, channel: 'both', center: 70, freq: 120, q: 2, lowBoost: 0 };
 
 let wave;
 
@@ -241,29 +245,30 @@ function render() {
       </div>
     </div>
 
-    <div class="control">
-      <div class="head">
-        <label class="bfhead"><input type="checkbox" id="bfSolo" /> <span class="muted">Bass Focus</span></label>
-        <span class="val" id="bfStateVal">off</span>
+    <div class="control eqctl">
+      <div class="eqhead">
+        <button class="disclosure" id="eqToggle"><span id="eqChev">▸</span> EQ</button>
+        <label class="eqon"><input type="checkbox" id="eqOn" /> On</label>
+        <span style="flex:1"></span>
+        <select id="eqPreset" class="eqselect" aria-label="EQ preset"></select>
+        <button class="iconbtn" id="eqSave" title="Save as preset" aria-label="Save as preset">${ICON_SAVE}</button>
+        <button class="iconbtn" id="eqDelete" title="Delete this preset" aria-label="Delete this preset">${ICON_TRASH}</button>
       </div>
-      <div id="bfPanel" class="bfpanel hidden">
-        <div class="bfhint muted">Hears the bass out of a full mix (no stems): centres the signal and rings out the low band.</div>
-        <div class="bfrow"><span class="muted">Mix original back in</span><span class="val" id="bfMixVal">0<small>%</small></span></div>
-        <input type="range" id="bfMix" min="0" max="100" step="1" value="0" />
-        <div class="bfrow"><span class="muted">Channel</span><span class="muted bfsub">pick the side the bass is on</span></div>
-        <div class="presets bfchan">
-          <button class="chip" data-bfchan="left">Left</button>
-          <button class="chip" data-bfchan="both">Both</button>
-          <button class="chip" data-bfchan="right">Right</button>
+      <div id="eqPanel" class="eqpanel hidden">
+        <canvas id="eqCanvas" class="eqcanvas"></canvas>
+        <div class="eqbands" id="eqBands"></div>
+        <div class="eqedit">
+          <div class="eqrow eqrow-top">
+            <label class="eqbandon"><input type="checkbox" id="eqBandOn" /> Band <span id="eqBandNum">3</span></label>
+            <select id="eqType" class="eqselect" aria-label="Band type">${EQ_TYPES.map(([t, n]) => `<option value="${t}">${n}</option>`).join('')}</select>
+            <button class="btn ghost eqreset" id="eqBandReset" title="Reset this band">Reset</button>
+          </div>
+          <div class="eqrow"><span class="muted">Freq</span><input type="range" id="eqFreq" min="0" max="1000" step="1" /><span class="mono eqval" id="eqFreqVal"></span></div>
+          <div class="eqrow" id="eqGainRow"><span class="muted">Gain</span><input type="range" id="eqGain" min="-24" max="24" step="0.5" /><span class="mono eqval" id="eqGainVal"></span></div>
+          <div class="eqrow" id="eqQRow"><span class="muted">Q</span><input type="range" id="eqQ" min="0" max="1000" step="1" /><span class="mono eqval" id="eqQVal"></span></div>
+          <div class="eqrow"><span class="muted">Output</span><input type="range" id="eqOut" min="-24" max="12" step="0.5" /><span class="mono eqval" id="eqOutVal"></span></div>
         </div>
-        <div class="bfrow" id="bfCenterRow"><span class="muted">Center focus (toward mono)</span><span class="val" id="bfCenterVal">70<small>%</small></span></div>
-        <input type="range" id="bfCenter" min="0" max="100" step="1" value="70" />
-        <div class="bfrow"><span class="muted">Focus frequency</span><span class="val" id="bfFreqVal">120<small> Hz</small></span></div>
-        <input type="range" id="bfFreq" min="40" max="500" step="5" value="120" />
-        <div class="bfrow"><span class="muted">Sharpness</span><span class="val" id="bfQVal">2.0</span></div>
-        <input type="range" id="bfQ" min="5" max="80" step="1" value="20" />
-        <div class="bfrow"><span class="muted">Low boost (below focus)</span><span class="val" id="bfLowVal">0<small> dB</small></span></div>
-        <input type="range" id="bfLow" min="0" max="18" step="1" value="0" />
+        <div class="eqhint muted">Drag a dot: ↔ frequency, ↕ boost/cut · scroll on the graph for width (Q) · double-tap a dot to flatten it</div>
       </div>
     </div>
 
@@ -314,11 +319,11 @@ function ensureAudio() {
   limiter.ratio.value = 20;
   limiter.attack.value = 0.003;
   limiter.release.value = 0.1;
-  // Bass Focus bus sits between the engines and the master gain. Engines feed
-  // `busIn`; from there a dry path and a wet (bass-focused) path mix into `gain`.
-  const bf = buildBassFocus(ctx, gain);
-  state.busIn = bf.busIn;
-  state.bfNodes = bf;
+  // The EQ sits between the engines and the master gain: engines feed
+  // `busIn`, the EQ (or its bypass) feeds `gain`.
+  const eq = createEqChain(ctx, gain);
+  state.busIn = eq.input;
+  state.eqChain = eq;
 
   gain.connect(limiter);
   limiter.connect(ctx.destination);
@@ -335,100 +340,6 @@ function ensureAudio() {
   state.gain = gain;
   state.limiter = limiter;
   return ctx;
-}
-
-// ---------- Bass Focus (DSP bus) ----------
-// Graph:  busIn ─┬─► dry ──────────────────────────────────────────────────────────► out
-//                └─► [channel pick] ─► [stereo/mono crossfade] ─► band-pass ─► low-shelf ─► wet ─► out
-// Dry/wet gains implement the solo + mix-back-in. Channel pick passes both sides,
-// or just the left/right channel (for hard-panned stereo, e.g. 60s Blue Note,
-// where the bass sits on one side). Center-focus crossfades toward
-// mono (cancels side/stereo-spread content; bass is centred so it survives). The
-// band-pass rings out the bass register; the low-shelf lifts what sits below it.
-function buildBassFocus(ctx, out) {
-  const busIn = ctx.createGain();
-
-  const dry = ctx.createGain();
-  dry.gain.value = 1;
-  busIn.connect(dry);
-  dry.connect(out);
-
-  // channel pick: 'both' passes the stereo signal; 'left'/'right' pass one
-  // channel only (as mono, upmixed to both ears downstream)
-  const both = ctx.createGain();
-  busIn.connect(both);
-  const splitter = ctx.createChannelSplitter(2);
-  busIn.connect(splitter);
-  const leftG = ctx.createGain();
-  leftG.gain.value = 0;
-  const rightG = ctx.createGain();
-  rightG.gain.value = 0;
-  splitter.connect(leftG, 0);
-  splitter.connect(rightG, 1);
-  const picked = ctx.createGain();
-  both.connect(picked);
-  leftG.connect(picked);
-  rightG.connect(picked);
-
-  // center focus: crossfade between full stereo and a mono downmix
-  const stereoTap = ctx.createGain();
-  stereoTap.gain.value = 0.3;
-  const monoTap = ctx.createGain();
-  monoTap.gain.value = 0.7;
-  monoTap.channelCountMode = 'explicit';
-  monoTap.channelCount = 1; // forces a mono (0.5L+0.5R) downmix; side content cancels
-  picked.connect(stereoTap);
-  picked.connect(monoTap);
-  const center = ctx.createGain();
-  stereoTap.connect(center);
-  monoTap.connect(center);
-
-  const bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = 120;
-  bp.Q.value = 2;
-  center.connect(bp);
-
-  // Low-shelf boost below the focus frequency: lifts the bass fundamental (which
-  // sits under the piano/comping) without reopening the highs the band-pass cut.
-  const lowShelf = ctx.createBiquadFilter();
-  lowShelf.type = 'lowshelf';
-  lowShelf.frequency.value = 120;
-  lowShelf.gain.value = 0;
-  bp.connect(lowShelf);
-
-  const wet = ctx.createGain();
-  wet.gain.value = 0; // solo off by default
-  lowShelf.connect(wet);
-  wet.connect(out);
-
-  return { busIn, dry, both, leftG, rightG, stereoTap, monoTap, bp, lowShelf, wet };
-}
-
-function applyBassFocus() {
-  const b = state.bassFocus;
-  const n = state.bfNodes;
-  const ctx = state.audioCtx;
-  if (!n || !ctx) return;
-  const t = ctx.currentTime;
-  const ramp = (p, v) => p.setTargetAtTime(v, t, 0.015);
-  ramp(n.both.gain, b.channel === 'both' ? 1 : 0);
-  ramp(n.leftG.gain, b.channel === 'left' ? 1 : 0);
-  ramp(n.rightG.gain, b.channel === 'right' ? 1 : 0);
-  const f = b.center / 100; // mono amount
-  ramp(n.monoTap.gain, f);
-  ramp(n.stereoTap.gain, 1 - f);
-  ramp(n.bp.frequency, b.freq);
-  ramp(n.bp.Q, b.q);
-  ramp(n.lowShelf.frequency, b.freq);
-  ramp(n.lowShelf.gain, b.lowBoost);
-  if (b.solo) {
-    ramp(n.wet.gain, 1);
-    ramp(n.dry.gain, b.mix / 100);
-  } else {
-    ramp(n.wet.gain, 0);
-    ramp(n.dry.gain, 1);
-  }
 }
 
 function teardownCtx() {
@@ -539,8 +450,8 @@ function hideAudioFailBanner() {
 
 async function buildEngine() {
   const ctx = ensureAudio();
-  // Each stem routes through its own gain into the Bass Focus bus, which then
-  // mixes (dry + bass-focused) into the shared master (state.gain).
+  // Each stem routes through its own gain into the EQ bus, which then feeds
+  // the shared master (state.gain).
   return await createMultiEngine(ctx, state.busIn);
 }
 
@@ -561,7 +472,7 @@ async function loadSong(song, { autoplay = false } = {}) {
   try { localStorage.setItem('lastSongId', song.id); } catch {}
   state.speed = song.settings?.speed ?? 1;
   state.pitch = song.settings?.pitch ?? 0;
-  state.bassFocus = { ...BASS_FOCUS_DEFAULTS, ...(song.settings?.bassFocus || {}) };
+  state.eq = normalizeEq(song.settings?.eq);
 
   $('#player').classList.remove('hidden');
   $('#songTitle').textContent = song.name;
@@ -670,7 +581,7 @@ function applyEngineParams() {
   state.engine.setPitch(state.pitch);
   const l = state.loopOn && state.draftLoop ? state.draftLoop : null;
   state.engine.setLoop(l ? l.start : null, l ? l.end : null);
-  applyBassFocus();
+  state.eqChain?.apply(state.eq);
 }
 
 // ---------- transport ----------
@@ -775,7 +686,7 @@ function syncSpeedChips() {
 function syncControls() {
   setSpeed(state.speed * 100);
   setPitch(state.pitch);
-  syncBassFocusUI();
+  syncEqUI();
   updateLoopReadout();
 }
 
@@ -850,44 +761,189 @@ function fmtSemitones(s) {
   return `${s > 0 ? '+' : ''}${s} st`;
 }
 
-// ---------- bass focus UI ----------
-function syncBassFocusUI() {
-  const b = state.bassFocus;
-  const set = (id, v) => { const e = $(id); if (e) e.value = v; };
-  $('#bfSolo').checked = b.solo;
-  set('#bfMix', b.mix);
-  set('#bfCenter', b.center);
-  set('#bfFreq', b.freq);
-  set('#bfQ', Math.round(b.q * 10));
-  set('#bfLow', b.lowBoost);
-  $('#bfPanel').classList.toggle('hidden', !b.solo);
-  document.querySelectorAll('[data-bfchan]').forEach((c) => c.classList.toggle('on', c.dataset.bfchan === b.channel));
-  // a single channel is already mono, so center focus does nothing there
-  const oneSide = b.channel !== 'both';
-  $('#bfCenter').disabled = oneSide;
-  $('#bfCenterRow').classList.toggle('bfdim', oneSide);
-  $('#bfCenter').classList.toggle('bfdim', oneSide);
-  $('#bfStateVal').textContent = b.solo ? 'on' : 'off';
-  $('#bfMixVal').innerHTML = `${b.mix}<small>%</small>`;
-  $('#bfCenterVal').innerHTML = `${b.center}<small>%</small>`;
-  $('#bfFreqVal').innerHTML = `${b.freq}<small> Hz</small>`;
-  $('#bfQVal').textContent = b.q.toFixed(1);
-  $('#bfLowVal').innerHTML = `${b.lowBoost > 0 ? '+' : ''}${b.lowBoost}<small> dB</small>`;
+// ---------- EQ UI ----------
+const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const freqToSlider = (f) => Math.round((1000 * Math.log(f / F_MIN)) / Math.log(F_MAX / F_MIN));
+const sliderToFreq = (v) => Math.round(F_MIN * (F_MAX / F_MIN) ** (v / 1000) * 10) / 10;
+const qToSlider = (q) => Math.round((1000 * Math.log(q / Q_MIN)) / Math.log(Q_MAX / Q_MIN));
+const sliderToQ = (v) => Math.round(Q_MIN * (Q_MAX / Q_MIN) ** (v / 1000) * 100) / 100;
+const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2).replace(/\.?0+$/, '')} kHz` : `${Math.round(f)} Hz`);
+const fmtDb = (g) => `${g > 0 ? '+' : ''}${g.toFixed(1)} dB`;
+let eqGraph;
+
+// Saved presets live in localStorage and sync through the Drive manifest
+// (whichever device changed the list most recently wins).
+function loadEqPresets() {
+  try {
+    const v = JSON.parse(localStorage.getItem('eqPresets') || 'null');
+    if (v && Array.isArray(v.items)) return v;
+  } catch {}
+  return { updatedAt: 0, items: [] };
+}
+function storeEqPresets(v) {
+  state.eqPresets = v;
+  try { localStorage.setItem('eqPresets', JSON.stringify(v)); } catch {}
+}
+function allEqPresets() {
+  return [...BUILTIN_PRESETS, ...state.eqPresets.items.map((p) => ({ ...p, id: `user:${p.id}` }))];
 }
 
-function updateBassFocus(patch) {
-  Object.assign(state.bassFocus, patch);
-  syncBassFocusUI();
-  applyBassFocus();
-  persistBassFocus();
+function renderEqPresets() {
+  const sel = $('#eqPreset');
+  if (!sel) return;
+  const cur = state.eq.preset && allEqPresets().some((p) => p.id === state.eq.preset) ? state.eq.preset : '';
+  const opt = (p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`;
+  sel.innerHTML =
+    (cur ? '' : '<option value="">Custom</option>') +
+    `<optgroup label="Built-in">${BUILTIN_PRESETS.map(opt).join('')}</optgroup>` +
+    (state.eqPresets.items.length
+      ? `<optgroup label="My presets">${state.eqPresets.items.map((p) => opt({ ...p, id: `user:${p.id}` })).join('')}</optgroup>`
+      : '');
+  sel.value = cur;
+  $('#eqDelete').disabled = !cur.startsWith('user:');
 }
 
-let bassFocusTimer;
-function persistBassFocus() {
+function renderEqBands() {
+  const box = $('#eqBands');
+  if (!box) return;
+  box.innerHTML = state.eq.bands.map((b, i) =>
+    `<button class="eqchip ${b.on ? '' : 'off'} ${i === state.eqSel ? 'sel' : ''}" data-band="${i}" style="--c:${BAND_COLORS[i]}" title="Band ${i + 1}">${i + 1}</button>`
+  ).join('');
+  box.querySelectorAll('[data-band]').forEach((el) => (el.onclick = () => selectEqBand(Number(el.dataset.band))));
+}
+
+function syncEqUI() {
+  const eq = state.eq;
+  const b = eq.bands[state.eqSel];
+  $('#eqOn').checked = eq.on;
+  renderEqPresets();
+  renderEqBands();
+  $('#eqBandNum').textContent = String(state.eqSel + 1);
+  $('#eqBandOn').checked = b.on;
+  $('#eqType').value = b.type;
+  $('#eqFreq').value = freqToSlider(b.freq);
+  $('#eqFreqVal').textContent = fmtHz(b.freq);
+  $('#eqGain').value = b.gain;
+  $('#eqGainVal').textContent = hasGain(b.type) ? fmtDb(b.gain) : '—';
+  $('#eqGainRow').classList.toggle('eqdim', !hasGain(b.type));
+  $('#eqGain').disabled = !hasGain(b.type);
+  $('#eqQ').value = qToSlider(b.q);
+  $('#eqQVal').textContent = hasQ(b.type) ? b.q.toFixed(2) : '—';
+  $('#eqQRow').classList.toggle('eqdim', !hasQ(b.type));
+  $('#eqQ').disabled = !hasQ(b.type);
+  $('#eqOut').value = eq.out;
+  $('#eqOutVal').textContent = fmtDb(eq.out);
+  if (eqGraph) { eqGraph.selected = state.eqSel; eqGraph.draw(); }
+}
+
+function selectEqBand(i) {
+  state.eqSel = i;
+  syncEqUI();
+}
+
+// Any edit to the bands/output: mark the preset as edited ("Custom"), apply, save.
+function editEq(patch, bandIdx = state.eqSel) {
+  if (bandIdx != null) Object.assign(state.eq.bands[bandIdx], patch.band || {});
+  if (patch.out != null) state.eq.out = patch.out;
+  state.eq.preset = null;
+  state.eqChain?.apply(state.eq);
+  syncEqUI();
+  persistEq();
+}
+
+function applyEqPreset(id) {
+  const p = allEqPresets().find((x) => x.id === id);
+  if (!p) return;
+  state.eq.bands = cloneBands(p.bands);
+  state.eq.out = p.out || 0;
+  state.eq.preset = id;
+  state.eq.on = true; // picking a preset means you want to hear it
+  state.eqChain?.apply(state.eq);
+  syncEqUI();
+  persistEq();
+}
+
+function saveEqPreset() {
+  const cur = state.eq.preset?.startsWith('user:') ? state.eqPresets.items.find((p) => `user:${p.id}` === state.eq.preset) : null;
+  const raw = prompt('Save EQ preset as:', cur ? cur.name : 'My EQ');
+  const name = raw?.trim();
+  if (!name) return;
+  const items = state.eqPresets.items.map((p) => ({ ...p }));
+  let p = items.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  if (p && !(cur && cur.id === p.id) && !confirm(`Replace the preset “${p.name}”?`)) return;
+  if (!p) { p = { id: db.uid() }; items.push(p); }
+  Object.assign(p, { name, bands: cloneBands(state.eq.bands), out: state.eq.out });
+  storeEqPresets({ updatedAt: Date.now(), items });
+  state.eq.preset = `user:${p.id}`;
+  syncEqUI();
+  persistEq();
+  schedulePush();
+  toast(`Saved preset “${name}”`);
+}
+
+function deleteEqPreset() {
+  const id = state.eq.preset;
+  const p = state.eqPresets.items.find((x) => `user:${x.id}` === id);
+  if (!p || !confirm(`Delete the preset “${p.name}”?`)) return;
+  storeEqPresets({ updatedAt: Date.now(), items: state.eqPresets.items.filter((x) => x !== p) });
+  state.eq.preset = null;
+  syncEqUI();
+  persistEq();
+  schedulePush();
+}
+
+function toggleEqPanel(force) {
+  state.eqExpanded = force != null ? force : !state.eqExpanded;
+  try { localStorage.setItem('eqExpanded', state.eqExpanded ? '1' : '0'); } catch {}
+  $('#eqPanel').classList.toggle('hidden', !state.eqExpanded);
+  $('#eqChev').style.transform = state.eqExpanded ? 'rotate(90deg)' : 'none';
+  if (state.eqExpanded) {
+    if (!eqGraph) {
+      eqGraph = new EqGraph($('#eqCanvas'), {
+        getEq: () => state.eq,
+        getChain: () => state.eqChain,
+        isPlaying: () => state.playing,
+        onSelect: (i) => { state.eqSel = i; syncEqUI(); },
+        onChange: (i, band) => editEq({ band }, i),
+      });
+    }
+    eqGraph.selected = state.eqSel;
+    eqGraph.draw();
+    eqGraph.startSpectrum();
+  } else {
+    eqGraph?.stopSpectrum();
+  }
+}
+
+function initEqUI() {
+  $('#eqToggle').onclick = () => toggleEqPanel();
+  $('#eqOn').addEventListener('change', (e) => { state.eq.on = e.target.checked; state.eqChain?.apply(state.eq); syncEqUI(); persistEq(); });
+  $('#eqPreset').addEventListener('change', (e) => { if (e.target.value) applyEqPreset(e.target.value); });
+  $('#eqSave').onclick = () => saveEqPreset();
+  $('#eqDelete').onclick = () => deleteEqPreset();
+  $('#eqBandOn').addEventListener('change', (e) => editEq({ band: { on: e.target.checked } }));
+  $('#eqType').addEventListener('change', (e) => {
+    const type = e.target.value;
+    // sensible width for the new type: Butterworth for cuts/shelves, 1 for the rest
+    editEq({ band: { type, q: type === 'highpass' || type === 'lowpass' || !hasQ(type) ? 0.71 : 1, on: true } });
+  });
+  $('#eqBandReset').onclick = () => editEq({ band: { ...defaultBands()[state.eqSel] } });
+  $('#eqFreq').addEventListener('input', (e) => editEq({ band: { freq: sliderToFreq(Number(e.target.value)) } }));
+  $('#eqGain').addEventListener('input', (e) => editEq({ band: { gain: Number(e.target.value) } }));
+  $('#eqQ').addEventListener('input', (e) => editEq({ band: { q: clampNum(sliderToQ(Number(e.target.value)), Q_MIN, Q_MAX) } }));
+  $('#eqOut').addEventListener('input', (e) => editEq({ out: Number(e.target.value) }, null));
+  syncEqUI();
+  let expanded = false;
+  try { expanded = localStorage.getItem('eqExpanded') === '1'; } catch {}
+  if (expanded) toggleEqPanel(true);
+}
+
+let eqTimer;
+function persistEq() {
   if (!state.song) return;
-  clearTimeout(bassFocusTimer);
-  bassFocusTimer = setTimeout(() => {
-    db.updateSongSettings(state.song.id, { bassFocus: { ...state.bassFocus } }).then(schedulePush);
+  clearTimeout(eqTimer);
+  eqTimer = setTimeout(() => {
+    db.updateSongSettings(state.song.id, { eq: JSON.parse(JSON.stringify(state.eq)) }).then(schedulePush);
   }, 300);
 }
 
@@ -1211,10 +1267,16 @@ async function buildManifest() {
       };
     }
   }
-  return { version: 3, updatedAt: Date.now(), entries };
+  return { version: 3, updatedAt: Date.now(), entries, eqPresets: state.eqPresets };
 }
 
 async function applyManifest(manifest) {
+  // EQ presets: the newer list (by its own updatedAt) wins
+  const rp = manifest?.eqPresets;
+  if (rp && Array.isArray(rp.items) && (rp.updatedAt || 0) > (state.eqPresets.updatedAt || 0)) {
+    storeEqPresets(rp);
+    renderEqPresets();
+  }
   const entries = manifest?.entries;
   if (!entries) return;
   for (const [key, e] of Object.entries(entries)) {
@@ -1698,14 +1760,7 @@ function wireShell() {
   $('#pitch').addEventListener('input', (e) => setPitch(Number(e.target.value)));
   document.querySelectorAll('[data-pitch]').forEach((c) => (c.onclick = () => setPitch(Number(c.dataset.pitch))));
 
-  // Bass Focus
-  $('#bfSolo').addEventListener('change', (e) => updateBassFocus({ solo: e.target.checked }));
-  $('#bfMix').addEventListener('input', (e) => updateBassFocus({ mix: Number(e.target.value) }));
-  document.querySelectorAll('[data-bfchan]').forEach((c) => (c.onclick = () => updateBassFocus({ channel: c.dataset.bfchan })));
-  $('#bfCenter').addEventListener('input', (e) => updateBassFocus({ center: Number(e.target.value) }));
-  $('#bfFreq').addEventListener('input', (e) => updateBassFocus({ freq: Number(e.target.value) }));
-  $('#bfQ').addEventListener('input', (e) => updateBassFocus({ q: Number(e.target.value) / 10 }));
-  $('#bfLow').addEventListener('input', (e) => updateBassFocus({ lowBoost: Number(e.target.value) }));
+  initEqUI();
 
 
   window.addEventListener('keydown', (e) => {
