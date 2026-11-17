@@ -119,6 +119,7 @@ const state = {
   selectedMarkers: new Set(),
   markersExpanded: false,
   span: 1, // marker-loop window size (in marker intervals)
+  spanCustomOpen: false, // the Custom span input is showing
   markerWinIdx: 0, // start marker index of the loop window
   markerLoopActive: false,
   activeLoopId: null,
@@ -190,10 +191,11 @@ function render() {
 
     <div class="transport2">
       <span class="stepgroup"><button class="btn" id="markerLoopPrev" title="Previous span">◀</button><button class="btn primary" id="markerLoopHere" title="Loop the span at the playhead">${ICON_LOOP}</button><button class="btn" id="markerLoopNext" title="Next span">▶</button></span>
-      <span class="muted" style="font-size:12px; margin-left:6px">Size</span>
-      <select id="spanSelect" class="btn" title="Loop span size (markers)">
-        ${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option value="${n}">${n}</option>`).join('')}
-      </select>
+      <span class="seg" id="spanSeg" title="Loop span size (markers)">
+        ${[1, 2, 3, 4, 5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
+        <button class="seg-btn" id="spanCustomBtn" title="Custom span size">Custom</button>
+      </span>
+      <input type="number" id="spanCustom" class="spaninput hidden" min="1" step="1" inputmode="numeric" aria-label="Custom loop span size" />
     </div>
 
     <div id="trackMix" class="trackmix hidden"></div>
@@ -1168,7 +1170,7 @@ function renderMarkers() {
 // ---------- loop between markers ----------
 function setSpan(n) {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  state.span = Math.max(1, Math.min(maxSpan, Math.min(8, Math.round(n))));
+  state.span = Math.max(1, Math.min(maxSpan, Math.round(n)));
   updateSpanSelect();
   const maxIdx = state.markers.length - 1 - state.span;
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);
@@ -1177,10 +1179,19 @@ function setSpan(n) {
 }
 function updateSpanSelect() {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  const sel = $('#spanSelect');
-  if (!sel) return;
-  [...sel.options].forEach((o) => { o.disabled = Number(o.value) > maxSpan; });
-  sel.value = String(state.span);
+  const custom = state.spanCustomOpen || state.span > 6;
+  document.querySelectorAll('#spanSeg [data-span]').forEach((b) => {
+    const n = Number(b.dataset.span);
+    b.disabled = n > maxSpan;
+    b.classList.toggle('on', !custom && n === state.span);
+  });
+  const btn = $('#spanCustomBtn');
+  const inp = $('#spanCustom');
+  if (!btn || !inp) return;
+  btn.classList.toggle('on', custom);
+  inp.classList.toggle('hidden', !custom);
+  inp.max = String(maxSpan);
+  if (document.activeElement !== inp) inp.value = String(state.span);
 }
 function markerLoopStart() {
   if (state.markers.length < state.span + 1) {
@@ -1749,7 +1760,21 @@ function wireShell() {
   $('#sectionSelectAll').onchange = (e) => toggleSelectAllSections(e.target.checked);
   $('#deleteSelectedSections').onclick = () => deleteSelectedSections();
 
-  $('#spanSelect').onchange = (e) => setSpan(Number(e.target.value));
+  document.querySelectorAll('#spanSeg [data-span]').forEach((b) => (b.onclick = () => {
+    state.spanCustomOpen = false;
+    setSpan(Number(b.dataset.span));
+  }));
+  $('#spanCustomBtn').onclick = () => {
+    state.spanCustomOpen = true;
+    updateSpanSelect();
+    $('#spanCustom').focus();
+    $('#spanCustom').select();
+  };
+  $('#spanCustom').addEventListener('input', (e) => {
+    const v = parseInt(e.target.value, 10);
+    if (v >= 1) setSpan(v);
+  });
+  $('#spanCustom').addEventListener('change', (e) => { e.target.value = String(state.span); }); // show the clamped value
   $('#markerLoopHere').onclick = () => markerLoopStart();
   $('#markerLoopPrev').onclick = () => markerLoopStep(-1);
   $('#markerLoopNext').onclick = () => markerLoopStep(1);
