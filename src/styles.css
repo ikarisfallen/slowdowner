@@ -65,8 +65,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .song:hover { border-color: #3a4150; background: var(--panel); }
 .song.active { border-color: var(--accent); }
 .song .title { padding-left: 2px; }
-.song .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* name wraps to at most 2 lines; length + "2 tracks" tag sit in their own column so they're never cut off */
+.song .title { flex: 1; min-width: 0; line-height: 1.3; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.song .songmeta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .song .dur { color: var(--muted); font-size: 13px; }
+.song .songtags { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.song .songtags:empty { display: none; }
+.song .songtag { padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .iconbtn { background: transparent; border: none; padding: 8px; border-radius: 8px; color: var(--muted); min-width: var(--tap); min-height: var(--tap); }
 .iconbtn:hover { color: var(--text); background: var(--panel); }
 
@@ -294,3 +300,5 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .segline #speedField { flex: 1.3; }
 .segline .spinbtns { width: 15px; }
 .segline .spaninput { font-size: 14px; }
+.song .iconbtn[title="Delete"] { min-width: 38px; padding: 8px 4px; }
+.song .songtag { border-color: #3a4150; color: #b3bac7; }

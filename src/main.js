@@ -1655,8 +1655,11 @@ async function renderSongList() {
     const row = el(`
       <div class="song ${state.song?.id === s.id ? 'active' : ''}">
         <button class="iconbtn star ${isFavorite(s) ? 'on' : ''}" title="${isFavorite(s) ? 'Unfavorite' : 'Favorite'}" aria-pressed="${isFavorite(s)}">${isFavorite(s) ? '★' : '☆'}</button>
-        <div class="title">${escapeHtml(s.name)}${s.tracks && s.tracks.length > 1 ? ` <span class="muted" style="font-size:11px">· ${s.tracks.length} tracks</span>` : ''}${s.driveFileId && !s.blob ? ' <span class="muted" style="font-size:11px">☁︎</span>' : ''}</div>
-        <div class="dur mono">${s.duration ? fmt(s.duration) : '—'}</div>
+        <div class="title">${escapeHtml(s.name)}</div>
+        <div class="songmeta">
+          <div class="dur mono">${s.duration ? fmt(s.duration) : '—'}</div>
+          <div class="songtags">${s.tracks && s.tracks.length > 1 ? `<span class="songtag">${s.tracks.length} tracks</span>` : ''}${s.driveFileId && !s.blob ? '<span class="muted" title="In Drive, not downloaded yet">☁︎</span>' : ''}</div>
+        </div>
         <button class="iconbtn" title="Delete">🗑</button>
       </div>`);
     row.onclick = () => { // load (no play), close the drawer, and reset the search for next time
