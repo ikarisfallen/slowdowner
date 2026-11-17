@@ -199,10 +199,10 @@ function render() {
       </div>
       <div class="spanblock" id="spanSeg" title="Loop size (in markers)">
         <div class="seg spanrow">
-          ${[1, 2, 3].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
+          ${[1, 2, 3, 4].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
         </div>
         <div class="seg spanrow">
-          <button class="seg-btn" id="spanCustomBtn" title="Custom loop size">Custom</button>
+          ${[5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
           <input type="number" id="spanCustom" class="spaninput" min="1" step="1" inputmode="numeric" aria-label="Custom loop size" />
         </div>
       </div>
@@ -1203,16 +1203,15 @@ function setSpan(n) {
 }
 function updateSpanSelect() {
   const maxSpan = Math.max(1, state.markers.length - 1);
-  const custom = state.spanCustomOpen || state.span > 3;
+  const custom = state.spanCustomOpen || state.span > 6; // the number box is "selected"
   document.querySelectorAll('#spanSeg [data-span]').forEach((b) => {
     const n = Number(b.dataset.span);
     b.disabled = n > maxSpan;
     b.classList.toggle('on', !custom && n === state.span);
   });
-  const btn = $('#spanCustomBtn');
   const inp = $('#spanCustom');
-  if (!btn || !inp) return;
-  btn.classList.toggle('on', custom);
+  if (!inp) return;
+  inp.classList.toggle('on', custom);
   inp.max = String(maxSpan);
   if (document.activeElement !== inp) inp.value = String(state.span);
 }
@@ -1823,19 +1822,13 @@ function wireShell() {
     state.spanCustomOpen = false;
     setSpan(Number(b.dataset.span));
   }));
-  $('#spanCustomBtn').onclick = () => {
-    state.spanCustomOpen = true;
-    updateSpanSelect();
-    $('#spanCustom').focus();
-    $('#spanCustom').select();
-  };
-  $('#spanCustom').addEventListener('focus', () => { state.spanCustomOpen = true; updateSpanSelect(); });
+  $('#spanCustom').addEventListener('focus', (e) => { state.spanCustomOpen = true; updateSpanSelect(); e.target.select(); });
   $('#spanCustom').addEventListener('input', (e) => {
     const v = parseInt(e.target.value, 10);
     if (v >= 1) setSpan(v);
   });
   $('#spanCustom').addEventListener('change', (e) => { e.target.value = String(state.span); }); // show the clamped value
-  $('#spanCustom').addEventListener('blur', () => { state.spanCustomOpen = false; updateSpanSelect(); }); // 1-3 get their button back
+  $('#spanCustom').addEventListener('blur', () => { state.spanCustomOpen = false; updateSpanSelect(); }); // 1-6 get their button back
 
   $('#speed').addEventListener('input', (e) => setSpeed(Number(e.target.value)));
   document.querySelectorAll('[data-speed]').forEach((c) => (c.onclick = () => setSpeed(Number(c.dataset.speed))));

@@ -204,9 +204,10 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .spanblock { display: flex; flex-direction: column; gap: 10px; width: 120px; flex: none; }
 .spanrow { flex: 1; display: flex; }
 .spanrow .seg-btn { flex: 1; min-width: 0; min-height: 0; padding: 0; }
-.spaninput { width: 50px; flex: none; border: none; border-left: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 15px; text-align: center; padding: 0 4px; -moz-appearance: textfield; }
+.spaninput { flex: 2; min-width: 0; width: 0; border: none; background: var(--panel-2); color: var(--text); font-size: 15px; text-align: center; padding: 0; -moz-appearance: textfield; }
 .spaninput::-webkit-inner-spin-button, .spaninput::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .spaninput:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.spaninput.on { background: rgba(91, 140, 255, 0.22); color: #fff; }
 
 /* Player / empty-state header: title left, Library button top-right */
 #app { padding-top: 6px; }
