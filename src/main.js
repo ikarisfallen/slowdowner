@@ -262,14 +262,13 @@ function render() {
       <button class="btn tbtn" id="toStart" title="Back to start">⏮</button>
       <button class="btn rwbtn tbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
       <button class="playbtn-sm tbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
-      <button class="chip tbtn tgap" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead, or your A/B range">${ICON_LOOP}</button>
-      <button class="btn tbtn tgap" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button>
+      <button class="btn tbtn" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button>
       <button class="btn primary tbtn" id="addMarker" title="Add marker (M)">＋</button>
       <button class="btn tbtn" id="nextMarker" title="Next marker (.) — moves the loop when a marker loop is on">▶</button>
-      <button class="btn tbtn tgap" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
+      <button class="btn tbtn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
     </div>
     <div class="loopsizerow">
-      ${segLine({ id: 'span', label: 'Loop', values: [1, 2, 3, 4, 5, 6], min: 1, max: 99, title: 'Loop size (in markers)' })}
+      ${segLine({ id: 'span', label: `<button class="chip looptoggle" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead (or the whole song)">${ICON_LOOP}</button>`, values: [1, 2, 3, 4, 5, 6], min: 1, max: 99, title: 'Loop size (in markers)' })}
     </div>
 
     <div id="trackMix" class="trackmix hidden"></div>
