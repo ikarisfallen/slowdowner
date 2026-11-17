@@ -6,6 +6,10 @@ import SignalsmithStretch from 'signalsmith-stretch';
 
 export async function createSignalsmithEngine(ctx) {
   const stretch = await SignalsmithStretch(ctx);
+  // Same block/interval as the library's default preset (120 ms / 30 ms), but
+  // with the work spread evenly across audio callbacks instead of a CPU spike
+  // every interval: those spikes are what crackle when a locked phone throttles.
+  await stretch.configure({ blockMs: 120, intervalMs: 30, splitComputation: true });
 
   let duration = 0;
   let rate = 1;

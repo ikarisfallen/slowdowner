@@ -363,7 +363,13 @@ const WINDOW_MS = 12000;
 
 function ensureAudio() {
   if (state.audioCtx) return state.audioCtx;
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // 'playback' = bigger audio buffers. The default ('interactive') uses tiny ones,
+  // and with the phone locked/backgrounded the CPU slows down, the time-stretch
+  // misses its deadlines, and you hear harsh static. A little extra latency on
+  // play/pause is a fine trade for a practice player.
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ctx;
+  try { ctx = new AC({ latencyHint: 'playback' }); } catch { ctx = new AC(); }
   const gain = ctx.createGain();
   gain.gain.value = state.volume;
   // Brick-wall-ish limiter so boosting quiet stems can't clip harshly.
