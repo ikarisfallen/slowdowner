@@ -198,10 +198,10 @@ function render() {
         </div>
       </div>
       <div class="spanblock" id="spanSeg" title="Loop size (in markers)">
-        <div class="seg spanrow spanrow-top">
+        <div class="spanrow spanrow-top">
           ${[1, 2, 3, 4].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
         </div>
-        <div class="seg spanrow spanrow-bottom">
+        <div class="spanrow spanrow-bottom">
           ${[5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
           <div class="spanfield" id="spanField">
             <input type="number" id="spanCustom" class="spaninput" min="1" step="1" inputmode="numeric" aria-label="Loop size" />

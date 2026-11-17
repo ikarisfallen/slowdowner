@@ -201,7 +201,9 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .navgrid { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: 8px 8px; margin-top: 10px; }
 .navcol { display: flex; flex-direction: column; gap: 10px; }
 .navcol .transport2 { margin-top: 0; flex-wrap: nowrap; }
-.spanblock { display: flex; flex-direction: column; gap: 10px; width: 154px; min-height: 102px; flex: none; } /* 38px buttons; keeps 46px rows if wrapped */
+.spanblock { display: flex; flex-direction: column; width: 154px; min-height: 102px; flex: none; /* 38px buttons */
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; } /* one connected keypad */
+.spanrow-top { border-bottom: 1px solid var(--line); }
 .spanrow { flex: 1; display: grid; }
 .spanrow-top { grid-template-columns: repeat(4, 1fr); }
 .spanrow-bottom { grid-template-columns: 1fr 1fr 2fr; } /* the field spans the 3 + 4 columns */
