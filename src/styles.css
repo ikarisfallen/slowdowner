@@ -218,18 +218,6 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 50; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 .mdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: -1px; box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
-/* Play + marker toolbars on the left; loop-size block on the right spanning both rows
-   (184 + 8 gap + 154 = 346px: fits a Pixel 8 (412px); narrower phones wrap the block below). */
-.navgrid { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: 8px 8px; margin-top: 10px; }
-.navcol { display: flex; flex-direction: column; gap: 10px; }
-.navcol .transport2 { margin-top: 0; flex-wrap: nowrap; }
-.spanblock { display: flex; flex-direction: column; width: 154px; min-height: 102px; flex: none; /* 38px buttons */
-  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; } /* one connected keypad */
-.spanrow-top { border-bottom: 1px solid var(--line); }
-.spanrow { flex: 1; display: grid; }
-.spanrow-top { grid-template-columns: repeat(4, 1fr); }
-.spanrow-bottom { grid-template-columns: 1fr 1fr 2fr; } /* the field spans the 3 + 4 columns */
-.spanrow .seg-btn { min-width: 0; min-height: 0; padding: 0; }
 /* number field: recessed, darker than its surroundings, steppers on the right */
 .spanfield { display: flex; min-width: 0; margin: 4px; border: 1px solid #3a4150; border-radius: 6px; overflow: hidden;
   background: var(--bg); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6); }
@@ -275,12 +263,6 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .song .star.on { color: #ffc94d; }
 @media (prefers-reduced-motion: reduce) { .drawer, .drawer-backdrop { transition: none; } }
 
-/* Play toolbar = marker toolbar width (184px on every device):
-   play row:   46 rewind + 46 play (round) + two 34px squares + 3 x 8 gap
-   marker row: three 42px buttons + 2 x 4 gap + 8 gap + 42px delete */
-#toStart, #loopToggle { width: 34px; height: 46px; min-height: 46px; padding: 0; border-radius: 9px; font-size: 15px; }
-#loopToggle svg { width: 17px; height: 17px; }
-#prevMarker, #addMarker, #nextMarker, #deleteCurrentMarker { width: 42px; padding: 0; justify-content: center; }
 
 /* Speed / Pitch: label + one-line keypad (presets + number field) */
 .ctlrow { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
@@ -297,8 +279,17 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 /* Phones (touch is the main input, no hover): tap/keyboard tips aren't useful there */
 @media (hover: none) and (pointer: coarse) { .hint { display: none; } }
 /* 6 speed presets: a narrower number field + slimmer steppers so the buttons keep their width */
-.segline #speedField { flex: 1.3; }
+.segline #speedField, .segline #spanField { flex: 1.3; }
 .segline .spinbtns { width: 15px; }
 .segline .spaninput { font-size: 14px; }
 .song .iconbtn[title="Delete"] { min-width: 38px; padding: 8px 4px; }
 .song .songtag { border-color: #3a4150; color: #b3bac7; }
+
+/* One line of player controls: ⏮ ⏪ ▶ | 🔁 | ◀ ＋ ▶ | 🗑 — equal squares that shrink to fit (max 46px) */
+.transportrow { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 10px; }
+.transportrow .tbtn { flex: 1 1 0; max-width: 46px; aspect-ratio: 1; min-width: 0; min-height: 0; height: auto; width: auto;
+  padding: 0; border-radius: 10px; display: grid; place-items: center; font-size: 17px; }
+.transportrow .tgap { margin-left: 6px; }
+.transportrow .tbtn svg { width: 20px; height: 20px; }
+.loopsizerow { margin-top: 10px; }
+.transportrow .playbtn-sm, .transportrow .btn.primary { border: 1px solid transparent; } /* same box as the bordered buttons */

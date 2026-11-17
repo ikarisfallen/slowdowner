@@ -258,34 +258,18 @@ function render() {
     </div>
     <div class="timerow"><span class="mono" id="curTime">0:00</span><span class="mono muted" id="loopReadout">No loop set</span><span class="mono muted" id="durTime">0:00</span></div>
 
-    <div class="navgrid">
-      <div class="navcol">
-        <div class="transport2">
-          <button class="btn rndbtn" id="toStart" title="Back to start">⏮</button>
-          <button class="btn rndbtn rwbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
-          <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
-          <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead, or your A/B range">${ICON_LOOP}</button>
-        </div>
-        <div class="transport2">
-          <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.) — moves the loop when a marker loop is on">▶</button></span>
-          <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
-        </div>
-      </div>
-      <div class="spanblock" id="spanSeg" title="Loop size (in markers)">
-        <div class="spanrow spanrow-top">
-          ${[1, 2, 3, 4].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
-        </div>
-        <div class="spanrow spanrow-bottom">
-          ${[5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
-          <div class="spanfield" id="spanField">
-            <input type="number" id="spanCustom" class="spaninput" min="1" step="1" inputmode="numeric" aria-label="Loop size" />
-            <span class="spinbtns">
-              <button class="spinbtn" id="spanUp" tabindex="-1" aria-label="Larger loop"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              <button class="spinbtn" id="spanDown" tabindex="-1" aria-label="Smaller loop"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-            </span>
-          </div>
-        </div>
-      </div>
+    <div class="transportrow">
+      <button class="btn tbtn" id="toStart" title="Back to start">⏮</button>
+      <button class="btn rwbtn tbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
+      <button class="playbtn-sm tbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
+      <button class="chip tbtn tgap" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead, or your A/B range">${ICON_LOOP}</button>
+      <button class="btn tbtn tgap" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button>
+      <button class="btn primary tbtn" id="addMarker" title="Add marker (M)">＋</button>
+      <button class="btn tbtn" id="nextMarker" title="Next marker (.) — moves the loop when a marker loop is on">▶</button>
+      <button class="btn tbtn tgap" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
+    </div>
+    <div class="loopsizerow">
+      ${segLine({ id: 'span', label: 'Loop', values: [1, 2, 3, 4, 5, 6], min: 1, max: 99, title: 'Loop size (in markers)' })}
     </div>
 
     <div id="trackMix" class="trackmix hidden"></div>
