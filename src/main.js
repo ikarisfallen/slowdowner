@@ -188,16 +188,15 @@ function render() {
       <button class="btn rndbtn" id="toStart" title="Back to start">⏮</button>
       <button class="btn rndbtn rwbtn" id="rewind" title="Back 1 second">${ICON_REWIND}</button>
       <button class="playbtn-sm rndbtn" id="playBtn" aria-label="Play/Pause">${ICON_PLAY}${ICON_PAUSE}</button>
-      <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L)">${ICON_LOOP}</button>
+      <button class="chip rndbtn" id="loopToggle" title="Loop on/off (L) — loops the marker span at the playhead, or your A/B range">${ICON_LOOP}</button>
     </div>
 
     <div class="transport2">
-      <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,)">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.)">▶</button></span>
+      <span class="stepgroup"><button class="btn" id="prevMarker" title="Previous marker (,) — moves the loop when a marker loop is on">◀</button><button class="btn primary" id="addMarker" title="Add marker (M)">＋</button><button class="btn" id="nextMarker" title="Next marker (.) — moves the loop when a marker loop is on">▶</button></span>
       <button class="btn" id="deleteCurrentMarker" title="Delete the marker at the playhead" disabled>🗑</button>
     </div>
 
     <div class="transport2">
-      <span class="stepgroup"><button class="btn" id="markerLoopPrev" title="Previous span">◀</button><button class="btn primary" id="markerLoopHere" title="Loop the span at the playhead">${ICON_LOOP}</button><button class="btn" id="markerLoopNext" title="Next span">▶</button></span>
       <span class="seg" id="spanSeg" title="Loop span size (markers)">
         ${[1, 2, 3, 4, 5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
         <button class="seg-btn" id="spanCustomBtn" title="Custom span size">Custom</button>
@@ -928,18 +927,26 @@ function updateLoopReadout() {
 function setLoopPoint(which) {
   if (!state.engine) return;
   const pos = state.engine.getPosition();
-  const d = state.draftLoop || { start: 0, end: state.buffer.duration };
+  // edit the current hand-set range; a marker span starts a fresh A/B range instead
+  const d = (!state.markerLoopActive && state.draftLoop) || { start: 0, end: state.buffer.duration };
   if (which === 'A') d.start = Math.min(pos, d.end - 0.05);
   else d.end = Math.max(pos, d.start + 0.05);
   state.draftLoop = { start: d.start, end: d.end };
-  if (!state.loopOn) toggleLoop(true);
-  else applyEngineParams();
+  state.markerLoopActive = false; // a hand-set A/B loop, not a marker span
+  state.loopOn = true;
+  applyEngineParams();
   updateLoopReadout();
 }
+const isWholeSong = (l) => !!state.buffer && l.start <= 0.001 && l.end >= state.buffer.duration - 0.001;
+// Loop on: a hand-set A/B range or saved section loops as-is; otherwise, with
+// enough markers, loop the marker span at the playhead (re-anchored each time,
+// so it follows the playhead); otherwise loop the whole song.
 function toggleLoop(force) {
   state.loopOn = force != null ? force : !state.loopOn;
-  if (state.loopOn && !state.draftLoop && state.buffer) {
-    state.draftLoop = { start: 0, end: state.buffer.duration };
+  if (state.loopOn) {
+    const manual = state.draftLoop && !state.markerLoopActive && !isWholeSong(state.draftLoop);
+    if (!manual && state.markers.length >= state.span + 1) return markerLoopStart();
+    if (!state.draftLoop && state.buffer) state.draftLoop = { start: 0, end: state.buffer.duration };
   }
   applyEngineParams();
   updateLoopReadout();
@@ -974,6 +981,7 @@ async function saveSection() {
 function activateLoop(l, { play = false } = {}) {
   state.draftLoop = { start: l.start, end: l.end };
   state.activeLoopId = l.id;
+  state.markerLoopActive = false; // a saved section, not a marker span
   state.loopOn = true;
   applyEngineParams();
   state.engine.seek(l.start);
@@ -1181,7 +1189,7 @@ function setSpan(n) {
   updateSpanSelect();
   const maxIdx = state.markers.length - 1 - state.span;
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);
-  if (state.markerLoopActive) applyMarkerLoop();
+  if (state.markerLoopActive && state.loopOn) applyMarkerLoop({ seekToStart: false });
   else updateMarkerLoopReadout();
 }
 function updateSpanSelect() {
@@ -1200,27 +1208,29 @@ function updateSpanSelect() {
   inp.max = String(maxSpan);
   if (document.activeElement !== inp) inp.value = String(state.span);
 }
+// Loop the marker span that starts at (or before) the playhead.
 function markerLoopStart() {
-  if (state.markers.length < state.span + 1) {
-    toast(`Need at least ${state.span + 1} markers`);
-    return;
-  }
   const pos = state.engine ? state.engine.getPosition() : 0;
   let j = 0;
   for (let k = 0; k < state.markers.length; k++) { if (state.markers[k] <= pos + 0.05) j = k; else break; }
   const maxIdx = state.markers.length - 1 - state.span;
   state.markerWinIdx = Math.max(0, Math.min(j, maxIdx));
   state.markerLoopActive = true;
-  applyMarkerLoop({ play: true });
+  applyMarkerLoop({ seekToStart: false }); // keep playing from where we are if it's inside the span
 }
 function markerLoopStep(dir) {
-  if (!state.markerLoopActive) return markerLoopStart();
   if (state.markers.length < state.span + 1) return;
   const maxIdx = state.markers.length - 1 - state.span;
   state.markerWinIdx = Math.max(0, Math.min(state.markerWinIdx + dir, maxIdx));
-  applyMarkerLoop({ play: true });
+  applyMarkerLoop();
 }
-function applyMarkerLoop({ play = false } = {}) {
+// ◀ / ▶: with a marker loop on, slide the loop one marker; otherwise jump the
+// playhead to the previous / next marker.
+function markerNav(dir) {
+  if (state.loopOn && state.markerLoopActive) markerLoopStep(dir);
+  else jumpMarker(dir);
+}
+function applyMarkerLoop({ play = false, seekToStart = true } = {}) {
   const i = state.markerWinIdx, sp = state.span;
   if (i + sp >= state.markers.length) return;
   const start = state.markers[i];
@@ -1229,8 +1239,11 @@ function applyMarkerLoop({ play = false } = {}) {
   state.loopOn = true;
   state.activeLoopId = null;
   applyEngineParams();
-  state.engine?.seek(start);
-  updatePlayhead(start);
+  const pos = state.engine ? state.engine.getPosition() : start;
+  if (seekToStart || pos < start || pos > end) {
+    state.engine?.seek(start);
+    updatePlayhead(start);
+  }
   updateLoopReadout();
   updateMarkerLoopReadout();
   renderSavedLoops();
@@ -1785,8 +1798,8 @@ function wireShell() {
   $('#saveLoop').onclick = () => saveSection();
 
   $('#addMarker').onclick = () => addMarker();
-  $('#prevMarker').onclick = () => jumpMarker(-1);
-  $('#nextMarker').onclick = () => jumpMarker(1);
+  $('#prevMarker').onclick = () => markerNav(-1);
+  $('#nextMarker').onclick = () => markerNav(1);
   $('#deleteCurrentMarker').onclick = () => deleteCurrentMarker();
   $('#markersToggle').onclick = () => toggleMarkersPanel();
   $('#markerSelectAll').onchange = (e) => toggleSelectAllMarkers(e.target.checked);
@@ -1811,9 +1824,6 @@ function wireShell() {
     if (v >= 1) setSpan(v);
   });
   $('#spanCustom').addEventListener('change', (e) => { e.target.value = String(state.span); }); // show the clamped value
-  $('#markerLoopHere').onclick = () => markerLoopStart();
-  $('#markerLoopPrev').onclick = () => markerLoopStep(-1);
-  $('#markerLoopNext').onclick = () => markerLoopStep(1);
 
   $('#speed').addEventListener('input', (e) => setSpeed(Number(e.target.value)));
   document.querySelectorAll('[data-speed]').forEach((c) => (c.onclick = () => setSpeed(Number(c.dataset.speed))));
@@ -1841,8 +1851,8 @@ function wireShell() {
     else if (e.key.toLowerCase() === 'b') setLoopPoint('B');
     else if (e.key.toLowerCase() === 'l') toggleLoop();
     else if (e.key.toLowerCase() === 'm') addMarker();
-    else if (e.key === ',') jumpMarker(-1);
-    else if (e.key === '.') jumpMarker(1);
+    else if (e.key === ',') markerNav(-1);
+    else if (e.key === '.') markerNav(1);
     else if (e.code === 'Home') { if (state.engine) { state.engine.seek(0); updatePlayhead(0); } }
   });
 
