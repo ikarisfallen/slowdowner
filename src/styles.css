@@ -288,5 +288,9 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .segline .pitchfield .spaninput { font-size: 15px; }
 .segline .segicon { display: grid; place-items: center; }
 .segline .seg-btn:disabled { opacity: 0.35; cursor: default; }
-/* Installed app on a phone: tap/keyboard tips aren't useful there */
-@media (display-mode: standalone) and (pointer: coarse) { .hint { display: none; } }
+/* Phones (touch is the main input, no hover): tap/keyboard tips aren't useful there */
+@media (hover: none) and (pointer: coarse) { .hint { display: none; } }
+/* 6 speed presets: a narrower number field + slimmer steppers so the buttons keep their width */
+.segline #speedField { flex: 1.3; }
+.segline .spinbtns { width: 15px; }
+.segline .spaninput { font-size: 14px; }
