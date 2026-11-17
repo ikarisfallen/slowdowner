@@ -1,6 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { Waveform, computePeaks } from './waveform.js';
+import { Waveform, computePeaks, markerColor } from './waveform.js';
 import * as db from './db.js';
 import * as drive from './drive.js';
 
@@ -1149,7 +1149,7 @@ function renderMarkers() {
       <div class="savedloop">
         <input type="checkbox" class="markercheck" ${state.selectedMarkers.has(t) ? 'checked' : ''} aria-label="Select marker ${i + 1}" />
         <button class="iconbtn" title="Go to marker">▶</button>
-        <div class="lname">Marker ${i + 1}</div>
+        <div class="lname"><span class="mdot" style="background:${markerColor(i)}"></span>Marker ${i + 1}</div>
         <div class="lrange mono">${fmtMs(t)}</div>
         <button class="iconbtn" title="Delete">🗑</button>
       </div>`);

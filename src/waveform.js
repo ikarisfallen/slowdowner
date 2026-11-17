@@ -1,5 +1,14 @@
 // Canvas waveform with playhead, active loop region, saved-loop ticks, markers,
 // and horizontal zoom. Tap = seek. Drag = select an A/B loop region.
+// Colour for the marker at sorted position i. Hues step by the golden angle
+// (~137.5°), so neighbouring markers always land far apart on the colour wheel
+// and nearby markers never repeat. Colour follows the number: inserting a
+// marker renumbers and recolours the ones after it.
+export function markerColor(i) {
+  const hue = (20 + i * 137.508) % 360;
+  return `hsl(${hue.toFixed(1)}, 85%, 63%)`;
+}
+
 export function computePeaks(audioBuffer, buckets) {
   // Higher resolution than the screen so zooming in still shows detail.
   if (!buckets) buckets = Math.min(65000, Math.max(4000, Math.floor(audioBuffer.duration * 200)));
@@ -211,24 +220,38 @@ export class Waveform {
       c.fillRect(x, h - 6, 2, 6);
     }
 
-    // markers (full-height amber line with a flag at top)
-    for (const m of this.markers) {
-      if (m < vStart || m > vEnd) continue;
+    // markers: a coloured full-height line plus its number, each with a soft
+    // dark shadow so they read on any background. Numbers that would collide
+    // with the label to their left are skipped; zooming in spreads them out.
+    c.save();
+    c.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    c.shadowBlur = 3;
+    c.shadowOffsetX = 1;
+    c.shadowOffsetY = 1;
+    c.font = '700 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+    c.textBaseline = 'top';
+    let lastLabelRight = -Infinity;
+    this.markers.forEach((m, i) => {
+      if (m < vStart || m > vEnd) return;
       const x = this._timeToX(m);
-      c.strokeStyle = '#ffb454';
+      const color = markerColor(i);
+      c.strokeStyle = color;
       c.lineWidth = 1.5;
       c.beginPath();
       c.moveTo(x + 0.5, 0);
       c.lineTo(x + 0.5, h);
       c.stroke();
-      c.fillStyle = '#ffb454';
-      c.beginPath();
-      c.moveTo(x, 0);
-      c.lineTo(x + 8, 0);
-      c.lineTo(x, 8);
-      c.closePath();
-      c.fill();
-    }
+
+      const label = String(i + 1);
+      const tw = c.measureText(label).width;
+      let lx = x + 4; // right of the line…
+      if (lx + tw > w - 2) lx = x - 3 - tw; // …or left of it at the right edge
+      if (lx < lastLabelRight + 7) return; // too crowded at this zoom
+      c.fillStyle = color;
+      c.fillText(label, lx, 3);
+      lastLabelRight = lx + tw;
+    });
+    c.restore();
 
     // playhead
     if (this.position >= vStart && this.position <= vEnd) {
