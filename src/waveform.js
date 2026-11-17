@@ -119,6 +119,18 @@ export class Waveform {
     this.draw();
   }
   fit() { this.zoom = 1; this.viewStart = 0; this.draw(); }
+  // Zoom so [start, end] fills the view, with a little margin on each side so
+  // the edge markers' lines and numbers aren't flush against the border.
+  frameRange(start, end, pad = 0.03) {
+    const span = Math.max(0.5, end - start);
+    const s = Math.max(0, start - span * pad);
+    const e = Math.min(this.duration, end + span * pad);
+    const maxZoom = Math.max(1, this.duration / 0.5);
+    this.zoom = Math.max(1, Math.min(maxZoom, this.duration / (e - s)));
+    this.viewStart = s;
+    this._clampView();
+    this.draw();
+  }
 
   _wheel(e) {
     if (this.zoom <= 1) return; // nothing to pan when fully zoomed out

@@ -51,6 +51,7 @@ const ICON_PLAY = `<svg class="ic-play" viewBox="0 0 24 24" fill="currentColor" 
 const ICON_PAUSE = `<svg class="ic-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 6C2 4.11438 2 3.17157 2.58579 2.58579C3.17157 2 4.11438 2 6 2C7.88562 2 8.82843 2 9.41421 2.58579C10 3.17157 10 4.11438 10 6V18C10 19.8856 10 20.8284 9.41421 21.4142C8.82843 22 7.88562 22 6 22C4.11438 22 3.17157 22 2.58579 21.4142C2 20.8284 2 19.8856 2 18V6Z"/><path d="M14 6C14 4.11438 14 3.17157 14.5858 2.58579C15.1716 2 16.1144 2 18 2C19.8856 2 20.8284 2 21.4142 2.58579C22 3.17157 22 4.11438 22 6V18C22 19.8856 22 20.8284 21.4142 21.4142C20.8284 22 19.8856 22 18 22C16.1144 22 15.1716 22 14.5858 21.4142C14 20.8284 14 19.8856 14 18V6Z"/></svg>`;
 const ICON_REWIND = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 12 20 5.5v13z"/><path d="M2 12 11 5.5v13z"/></svg>`;
 const ICON_LIBRARY = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`;
+const ICON_FRAME = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5v14M20 5v14M8 12h8M10.5 9.5 8 12l2.5 2.5M13.5 9.5 16 12l-2.5 2.5"/></svg>`;
 const ICON_LOOP = `<svg viewBox="0 0 100 100" fill="currentColor" aria-hidden="true"><path d="M83.729,23.57c-0.007-0.562-0.32-1.084-0.825-1.337c-0.503-0.259-1.107-0.212-1.568,0.114l-5.944,4.262l-0.468,0.336c-6.405-6.391-15.196-10.389-24.938-10.389c-13.284,0-24.878,7.354-30.941,18.201l0.024,0.013c-0.548,1.183-0.124,2.607,1.026,3.271c0.001,0,0.001,0,0.002,0.001l8.136,4.697c1.218,0.704,2.777,0.287,3.48-0.932c0.006-0.011,0.009-0.023,0.015-0.034c3.591-6.404,10.438-10.747,18.289-10.747c4.879,0,9.352,1.696,12.914,4.5l-1.001,0.719l-5.948,4.262c-0.455,0.327-0.696,0.89-0.611,1.447c0.081,0.558,0.471,1.028,1.008,1.208l25.447,8.669c0.461,0.162,0.966,0.084,1.367-0.203c0.399-0.29,0.629-0.746,0.627-1.23L83.729,23.57z"/><path d="M79.904,61.958c0,0-0.001,0-0.002-0.001l-8.136-4.697c-1.218-0.704-2.777-0.287-3.48,0.932c-0.006,0.011-0.009,0.023-0.015,0.034c-3.591,6.404-10.438,10.747-18.289,10.747c-4.879,0-9.352-1.696-12.914-4.5l1.001-0.719l5.948-4.262c0.455-0.327,0.696-0.89,0.611-1.447c-0.081-0.558-0.471-1.028-1.008-1.208l-25.447-8.669c-0.461-0.162-0.966-0.084-1.367,0.203c-0.399,0.29-0.629,0.746-0.627,1.23l0.092,26.828c0.007,0.562,0.32,1.084,0.825,1.337c0.503,0.259,1.107,0.212,1.568-0.114l5.944-4.262l0.468-0.336c6.405,6.391,15.196,10.389,24.938,10.389c13.284,0,24.878-7.354,30.941-18.201L80.93,65.23C81.478,64.046,81.055,62.623,79.904,61.958z"/></svg>`;
 
 function setPlayIcon(playing) {
@@ -112,8 +113,6 @@ const state = {
   tracks: [], // loaded stems: { id, name, buffer, volume, muted }
   peaks: null,
   loops: [],
-  selectedSections: new Set(),
-  sectionsExpanded: false,
   librarySearch: '',
   libraryOpen: false,
   markers: [],
@@ -123,7 +122,6 @@ const state = {
   spanCustomOpen: false, // the Custom span input is showing
   markerWinIdx: 0, // start marker index of the loop window
   markerLoopActive: false,
-  activeLoopId: null,
   draftLoop: null, // { start, end }
   loopOn: false,
   speed: 1,
@@ -172,14 +170,11 @@ function render() {
     </div>
     <div class="wavewrap"><canvas class="wave" id="wave"></canvas><div class="waveloading hidden" id="waveLoading"><span class="spin">⟳</span> <span id="waveLoadingText">Loading…</span></div></div>
     <div class="wavetools">
-      <button class="btn" id="setA" title="Set loop start (A)">[</button>
-      <button class="btn" id="setB" title="Set loop end (B)">]</button>
-      <button class="btn ghost" id="clearLoop" title="Clear loop">✕</button>
-      <button class="btn" id="saveLoop" title="Save section">＋ [ ]</button>
       <span style="flex:1"></span>
       <span class="mono muted" id="zoomLevel" title="Zoom level (1× = whole song)" style="font-size:13px; min-width:34px; text-align:right">1×</span>
       <button class="btn" id="zoomOut" title="Zoom out">−</button>
       <button class="btn" id="zoomFit" title="Fit whole song">⤢</button>
+      <button class="btn" id="zoomMarkers" title="Frame the first to last marker" aria-label="Frame the first to last marker" disabled>${ICON_FRAME}</button>
       <button class="btn" id="zoomIn" title="Zoom in">＋</button>
     </div>
     <div class="timerow"><span class="mono" id="curTime">0:00</span><span class="mono muted" id="loopReadout">No loop set</span><span class="mono muted" id="durTime">0:00</span></div>
@@ -272,20 +267,9 @@ function render() {
       </div>
     </div>
 
-    <div class="control" style="margin-top:2px">
-      <button class="disclosure" id="sectionsToggle"><span id="sectionsChev">▸</span> <span id="sectionsToggleLabel">Show sections (0)</span></button>
-      <div id="sectionsPanel" class="hidden">
-        <div class="markerhead">
-          <label class="checkall"><input type="checkbox" id="sectionSelectAll" /><span class="muted" style="font-size:12px">Select all</span></label>
-          <button class="btn" id="deleteSelectedSections" disabled>Delete selected</button>
-        </div>
-        <div class="savedloops" id="savedloops"></div>
-      </div>
-    </div>
-
     <div class="hint">
-      Tap the waveform to seek · drag to pan when zoomed · use Set A/Set B for loops ·
-      <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> nudge · <kbd>A</kbd>/<kbd>B</kbd> loop points · <kbd>L</kbd> loop · <kbd>M</kbd> marker · <kbd>,</kbd>/<kbd>.</kbd> prev/next marker
+      Tap the waveform to seek · drag to pan when zoomed ·
+      <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> nudge · <kbd>L</kbd> loop · <kbd>M</kbd> marker · <kbd>,</kbd>/<kbd>.</kbd> prev/next marker
     </div>
   </div>
 
@@ -647,9 +631,6 @@ async function loadSong(song, { autoplay = false } = {}) {
   renderTrackMix();
 
   // loops
-  state.loops = await db.getLoops(song.id);
-  state.selectedSections.clear();
-  state.activeLoopId = null;
   state.draftLoop = null;
   state.loopOn = false;
 
@@ -667,7 +648,6 @@ async function loadSong(song, { autoplay = false } = {}) {
 
   applyEngineParams();
   syncControls();
-  renderSavedLoops();
   renderMarkers();
   renderSongList();
   updatePlayhead(state.engine.getPosition()); // 0, or marker 1 when the default loop starts there
@@ -926,157 +906,28 @@ function persistTrackMix() {
 function updateLoopReadout() {
   const r = $('#loopReadout');
   const t = $('#loopToggle');
-  if (state.markerLoopActive && state.draftLoop && state.markers.length >= state.span + 1) {
+  if (!state.loopOn) {
+    r.textContent = 'Loop off';
+  } else if (state.markerLoopActive && state.draftLoop && state.markers.length >= state.span + 1) {
     const i = state.markerWinIdx, sp = state.span;
     r.textContent = `Loop M${i + 1} → M${i + sp + 1}  (${fmtMs(state.draftLoop.end - state.draftLoop.start)})`;
-  } else if (state.draftLoop) {
-    r.textContent = `A ${fmtMs(state.draftLoop.start)} → B ${fmtMs(state.draftLoop.end)}  (${fmtMs(
-      state.draftLoop.end - state.draftLoop.start
-    )})`;
   } else {
-    r.textContent = 'No loop set';
+    r.textContent = 'Loop: whole song';
   }
   t.classList.toggle('on', state.loopOn); // icon-only; the highlight shows on/off
-  wave.setState({ loop: state.draftLoop, savedLoops: state.loops });
+  wave.setState({ loop: state.draftLoop });
 }
-function setLoopPoint(which) {
-  if (!state.engine) return;
-  const pos = state.engine.getPosition();
-  // edit the current hand-set range; a marker span starts a fresh A/B range instead
-  const d = (!state.markerLoopActive && state.draftLoop) || { start: 0, end: state.buffer.duration };
-  if (which === 'A') d.start = Math.min(pos, d.end - 0.05);
-  else d.end = Math.max(pos, d.start + 0.05);
-  state.draftLoop = { start: d.start, end: d.end };
-  state.markerLoopActive = false; // a hand-set A/B loop, not a marker span
-  state.loopOn = true;
-  applyEngineParams();
-  updateLoopReadout();
-}
-const isWholeSong = (l) => !!state.buffer && l.start <= 0.001 && l.end >= state.buffer.duration - 0.001;
-// Loop on: a hand-set A/B range or saved section loops as-is; otherwise, with
-// enough markers, loop the marker span at the playhead (re-anchored each time,
-// so it follows the playhead); otherwise loop the whole song.
+// Loop on: with enough markers, loop the marker span at the playhead
+// (re-anchored each time, so it follows the playhead); otherwise the whole song.
 function toggleLoop(force) {
   state.loopOn = force != null ? force : !state.loopOn;
   if (state.loopOn) {
-    const manual = state.draftLoop && !state.markerLoopActive && !isWholeSong(state.draftLoop);
-    if (!manual && state.markers.length >= state.span + 1) return markerLoopStart();
-    if (!state.draftLoop && state.buffer) state.draftLoop = { start: 0, end: state.buffer.duration };
+    if (state.markers.length >= state.span + 1) return markerLoopStart();
+    state.markerLoopActive = false;
+    if (state.buffer) state.draftLoop = { start: 0, end: state.buffer.duration };
   }
   applyEngineParams();
   updateLoopReadout();
-}
-function clearLoop() {
-  state.loopOn = false;
-  state.draftLoop = null;
-  state.activeLoopId = null;
-  state.markerLoopActive = false;
-  updateMarkerLoopReadout();
-  applyEngineParams();
-  updateLoopReadout();
-  renderSavedLoops();
-}
-async function saveSection() {
-  if (!state.draftLoop || !state.song) return toast('Set a loop first (drag the waveform)');
-  const name = prompt('Name this section:', `Section ${state.loops.length + 1}`);
-  if (name == null) return;
-  const l = await db.addLoop({
-    songId: state.song.id,
-    name: name.trim() || `Section ${state.loops.length + 1}`,
-    start: state.draftLoop.start,
-    end: state.draftLoop.end,
-  });
-  state.loops = await db.getLoops(state.song.id);
-  state.activeLoopId = l.id;
-  renderSavedLoops();
-  updateLoopReadout();
-  schedulePush();
-  toast('Section saved');
-}
-function activateLoop(l, { play = false } = {}) {
-  state.draftLoop = { start: l.start, end: l.end };
-  state.activeLoopId = l.id;
-  state.markerLoopActive = false; // a saved section, not a marker span
-  state.loopOn = true;
-  applyEngineParams();
-  state.engine.seek(l.start);
-  updatePlayhead(l.start);
-  updateLoopReadout();
-  renderSavedLoops();
-  if (play && !state.playing) togglePlay();
-}
-function toggleSectionsPanel(force) {
-  state.sectionsExpanded = force != null ? force : !state.sectionsExpanded;
-  $('#sectionsPanel').classList.toggle('hidden', !state.sectionsExpanded);
-  const chev = $('#sectionsChev');
-  if (chev) chev.style.transform = state.sectionsExpanded ? 'rotate(90deg)' : 'none';
-  renderSavedLoops();
-}
-function updateSectionSelectionUI() {
-  const ids = new Set(state.loops.map((l) => l.id));
-  for (const id of [...state.selectedSections]) if (!ids.has(id)) state.selectedSections.delete(id);
-  const n = state.selectedSections.size;
-  const del = $('#deleteSelectedSections');
-  if (del) del.disabled = n === 0;
-  const all = $('#sectionSelectAll');
-  if (all) {
-    all.checked = state.loops.length > 0 && n === state.loops.length;
-    all.indeterminate = n > 0 && n < state.loops.length;
-  }
-}
-function toggleSelectAllSections(checked) {
-  state.selectedSections = new Set(checked ? state.loops.map((l) => l.id) : []);
-  renderSavedLoops();
-}
-async function deleteSelectedSections() {
-  if (!state.selectedSections.size) return;
-  const ids = [...state.selectedSections];
-  for (const id of ids) {
-    await db.deleteLoop(id);
-    if (state.activeLoopId === id) state.activeLoopId = null;
-  }
-  state.selectedSections.clear();
-  state.loops = await db.getLoops(state.song.id);
-  renderSavedLoops();
-  updateLoopReadout();
-  schedulePush();
-}
-function renderSavedLoops() {
-  const label = $('#sectionsToggleLabel');
-  if (label) label.textContent = `${state.sectionsExpanded ? 'Hide' : 'Show'} sections (${state.loops.length})`;
-  const box = $('#savedloops');
-  if (!box) return;
-  if (!state.loops.length) {
-    box.innerHTML = `<div class="muted" style="font-size:13px">No saved sections yet. Set a loop and tap “＋ [ ]” to save it.</div>`;
-    updateSectionSelectionUI();
-    return;
-  }
-  box.innerHTML = '';
-  for (const l of state.loops) {
-    const row = el(`
-      <div class="savedloop ${l.id === state.activeLoopId ? 'active' : ''}">
-        <input type="checkbox" class="markercheck" ${state.selectedSections.has(l.id) ? 'checked' : ''} aria-label="Select ${escapeHtml(l.name)}" />
-        <button class="iconbtn" title="Play section">▶</button>
-        <div class="lname">${escapeHtml(l.name)}</div>
-        <div class="lrange mono">${fmt(l.start)}–${fmt(l.end)}</div>
-        <button class="iconbtn" title="Delete">🗑</button>
-      </div>`);
-    const cb = row.querySelector('.markercheck');
-    cb.onchange = () => { cb.checked ? state.selectedSections.add(l.id) : state.selectedSections.delete(l.id); updateSectionSelectionUI(); };
-    row.querySelector('button[title="Play section"]').onclick = () => activateLoop(l, { play: true });
-    row.querySelector('.lname').onclick = () => activateLoop(l);
-    row.querySelector('button[title="Delete"]').onclick = async () => {
-      await db.deleteLoop(l.id);
-      state.loops = await db.getLoops(state.song.id);
-      state.selectedSections.delete(l.id);
-      if (state.activeLoopId === l.id) state.activeLoopId = null;
-      renderSavedLoops();
-      updateLoopReadout();
-      schedulePush();
-    };
-    box.appendChild(row);
-  }
-  updateSectionSelectionUI();
 }
 
 // ---------- markers ----------
@@ -1164,6 +1015,8 @@ function persistMarkers() {
   db.setMarkers(state.song.id, state.markers).then(schedulePush);
 }
 function renderMarkers() {
+  const fb = $('#zoomMarkers');
+  if (fb) fb.disabled = state.markers.length < 2;
   const label = $('#markersToggleLabel');
   if (label) label.textContent = `${state.markersExpanded ? 'Hide' : 'Show'} markers (${state.markers.length})`;
   const box = $('#markerlist');
@@ -1252,7 +1105,6 @@ function applyMarkerLoop({ play = false, seekToStart = true } = {}) {
   const end = state.markers[i + sp];
   state.draftLoop = { start, end };
   state.loopOn = true;
-  state.activeLoopId = null;
   applyEngineParams();
   const pos = state.engine ? state.engine.getPosition() : start;
   // Outside the span, move the playhead to its start (the engine would jump
@@ -1263,7 +1115,6 @@ function applyMarkerLoop({ play = false, seekToStart = true } = {}) {
   }
   updateLoopReadout();
   updateMarkerLoopReadout();
-  renderSavedLoops();
   if (play && state.engine && !state.playing) togglePlay();
 }
 function updateMarkerLoopReadout() {
@@ -1275,7 +1126,10 @@ function clampMarkerLoop() {
   updateSpanSelect();
   const maxIdx = state.markers.length - 1 - state.span;
   if (state.markerWinIdx > maxIdx) state.markerWinIdx = Math.max(0, maxIdx);
-  if (state.markers.length < state.span + 1) state.markerLoopActive = false;
+  if (state.markers.length < state.span + 1 && state.markerLoopActive) {
+    state.markerLoopActive = false;
+    if (state.loopOn) toggleLoop(true); // too few markers left: fall back to the whole song
+  }
   updateMarkerLoopReadout();
 }
 
@@ -1808,11 +1662,12 @@ function wireShell() {
   $('#zoomIn').onclick = () => { wave.zoomBy(2); updateZoomReadout(); };
   $('#zoomOut').onclick = () => { wave.zoomBy(0.5); updateZoomReadout(); };
   $('#zoomFit').onclick = () => { wave.fit(); updateZoomReadout(); };
+  $('#zoomMarkers').onclick = () => {
+    if (state.markers.length < 2) return;
+    wave.frameRange(state.markers[0], state.markers[state.markers.length - 1]);
+    updateZoomReadout();
+  };
   $('#loopToggle').onclick = () => toggleLoop();
-  $('#setA').onclick = () => setLoopPoint('A');
-  $('#setB').onclick = () => setLoopPoint('B');
-  $('#clearLoop').onclick = () => clearLoop();
-  $('#saveLoop').onclick = () => saveSection();
 
   $('#addMarker').onclick = () => addMarker();
   $('#prevMarker').onclick = () => markerNav(-1);
@@ -1822,9 +1677,6 @@ function wireShell() {
   $('#markerSelectAll').onchange = (e) => toggleSelectAllMarkers(e.target.checked);
   $('#deleteSelectedMarkers').onclick = () => deleteSelectedMarkers();
 
-  $('#sectionsToggle').onclick = () => toggleSectionsPanel();
-  $('#sectionSelectAll').onchange = (e) => toggleSelectAllSections(e.target.checked);
-  $('#deleteSelectedSections').onclick = () => deleteSelectedSections();
 
   document.querySelectorAll('#spanSeg [data-span]').forEach((b) => (b.onclick = () => {
     state.spanCustomOpen = false;
@@ -1862,8 +1714,6 @@ function wireShell() {
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.code === 'ArrowLeft') nudge(e.shiftKey ? -1 : -5);
     else if (e.code === 'ArrowRight') nudge(e.shiftKey ? 1 : 5);
-    else if (e.key.toLowerCase() === 'a') setLoopPoint('A');
-    else if (e.key.toLowerCase() === 'b') setLoopPoint('B');
     else if (e.key.toLowerCase() === 'l') toggleLoop();
     else if (e.key.toLowerCase() === 'm') addMarker();
     else if (e.key === ',') markerNav(-1);
