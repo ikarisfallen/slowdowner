@@ -180,8 +180,8 @@ function render() {
       <span class="wavetools-l">
         <button class="btn zoombtn" id="zoomIn" title="Zoom in" aria-label="Zoom in">${ICON_ZOOM_IN}</button>
         <button class="btn zoombtn" id="zoomOut" title="Zoom out" aria-label="Zoom out">${ICON_ZOOM_OUT}</button>
+        <span class="mono muted" id="zoomLevel" title="Zoom level (1× = whole song)">1×</span>
       </span>
-      <span class="mono muted" id="zoomLevel" title="Zoom level (1× = whole song)">1×</span>
       <span class="wavetools-r">
         <button class="btn zoombtn" id="zoomFit" title="Fit whole song" aria-label="Fit whole song">⤢</button>
         <button class="btn zoombtn" id="zoomMarkers" title="Frame the first to last marker" aria-label="Frame the first to last marker" disabled>${ICON_FRAME}</button>
