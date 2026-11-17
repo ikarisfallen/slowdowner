@@ -234,6 +234,6 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 /* Play toolbar = marker toolbar width (184px on every device):
    play row:   46 rewind + 46 play (round) + two 34px squares + 3 x 8 gap
    marker row: three 42px buttons + 2 x 4 gap + 8 gap + 42px delete */
-#toStart, #loopToggle { width: 34px; height: 34px; min-height: 34px; border-radius: 9px; font-size: 15px; }
+#toStart, #loopToggle { width: 34px; height: 46px; min-height: 46px; padding: 0; border-radius: 9px; font-size: 15px; }
 #loopToggle svg { width: 17px; height: 17px; }
 #prevMarker, #addMarker, #nextMarker, #deleteCurrentMarker { width: 42px; padding: 0; justify-content: center; }
