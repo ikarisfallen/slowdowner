@@ -163,7 +163,6 @@ function render() {
       <h2>Slowdowner</h2>
       <button class="libbtn" data-open-library title="Open library">${ICON_LIBRARY}<span>Library</span></button>
     </div>
-    <div class="muted" style="font-size:14px">Open the library to pick a song or add new ones.</div>
   </div>
 
   <div class="panel hidden" id="player">

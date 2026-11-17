@@ -202,10 +202,14 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .spaninput.hidden { display: none; }
 
 /* Player / empty-state header: title left, Library button top-right */
-#app { padding-top: 10px; }
-.playerhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+#app { padding-top: 6px; }
+.playerhead { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+#player, #emptyState { padding-top: 6px; }
+#emptyState { padding-bottom: 6px; }
+#emptyState .playerhead { margin-bottom: 0; }
 .playerhead h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.libbtn { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; min-height: 38px; font-size: 14px; color: var(--text); }
+.libbtn { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; min-height: 30px; font-size: 13px; color: var(--text); }
+.libbtn svg { width: 16px; height: 16px; }
 .libbtn:hover { border-color: var(--accent); }
 #app:has(#player:not(.hidden)) #emptyState { display: none; }
 
