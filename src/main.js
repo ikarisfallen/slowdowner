@@ -198,12 +198,18 @@ function render() {
         </div>
       </div>
       <div class="spanblock" id="spanSeg" title="Loop size (in markers)">
-        <div class="seg spanrow">
+        <div class="seg spanrow spanrow-top">
           ${[1, 2, 3, 4].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
         </div>
-        <div class="seg spanrow">
+        <div class="seg spanrow spanrow-bottom">
           ${[5, 6].map((n) => `<button class="seg-btn" data-span="${n}">${n}</button>`).join('')}
-          <input type="number" id="spanCustom" class="spaninput" min="1" step="1" inputmode="numeric" aria-label="Custom loop size" />
+          <div class="spanfield" id="spanField">
+            <input type="number" id="spanCustom" class="spaninput" min="1" step="1" inputmode="numeric" aria-label="Loop size" />
+            <span class="spinbtns">
+              <button class="spinbtn" id="spanUp" tabindex="-1" aria-label="Larger loop"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button class="spinbtn" id="spanDown" tabindex="-1" aria-label="Smaller loop"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -1211,7 +1217,9 @@ function updateSpanSelect() {
   });
   const inp = $('#spanCustom');
   if (!inp) return;
-  inp.classList.toggle('on', custom);
+  $('#spanField').classList.toggle('on', custom);
+  $('#spanUp').disabled = state.span >= maxSpan;
+  $('#spanDown').disabled = state.span <= 1;
   inp.max = String(maxSpan);
   if (document.activeElement !== inp) inp.value = String(state.span);
 }
@@ -1822,6 +1830,8 @@ function wireShell() {
     state.spanCustomOpen = false;
     setSpan(Number(b.dataset.span));
   }));
+  $('#spanUp').onclick = () => setSpan(state.span + 1);
+  $('#spanDown').onclick = () => setSpan(state.span - 1);
   $('#spanCustom').addEventListener('focus', (e) => { state.spanCustomOpen = true; updateSpanSelect(); e.target.select(); });
   $('#spanCustom').addEventListener('input', (e) => {
     const v = parseInt(e.target.value, 10);

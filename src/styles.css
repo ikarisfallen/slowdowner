@@ -197,17 +197,29 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 .mdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: -1px; box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
 /* Play + marker toolbars on the left; loop-size block on the right spanning both rows
-   (184 + 8 gap + 120 = 312px, fits a 375px phone). */
-.navgrid { display: flex; justify-content: center; align-items: stretch; gap: 8px; margin-top: 10px; }
+   (184 + 8 gap + 154 = 346px: fits a Pixel 8 (412px); narrower phones wrap the block below). */
+.navgrid { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: 8px 8px; margin-top: 10px; }
 .navcol { display: flex; flex-direction: column; gap: 10px; }
 .navcol .transport2 { margin-top: 0; flex-wrap: nowrap; }
-.spanblock { display: flex; flex-direction: column; gap: 10px; width: 120px; flex: none; }
-.spanrow { flex: 1; display: flex; }
-.spanrow .seg-btn { flex: 1; min-width: 0; min-height: 0; padding: 0; }
-.spaninput { flex: 2; min-width: 0; width: 0; border: none; background: var(--panel-2); color: var(--text); font-size: 15px; text-align: center; padding: 0; -moz-appearance: textfield; }
+.spanblock { display: flex; flex-direction: column; gap: 10px; width: 154px; min-height: 102px; flex: none; } /* 38px buttons; keeps 46px rows if wrapped */
+.spanrow { flex: 1; display: grid; }
+.spanrow-top { grid-template-columns: repeat(4, 1fr); }
+.spanrow-bottom { grid-template-columns: 1fr 1fr 2fr; } /* the field spans the 3 + 4 columns */
+.spanrow .seg-btn { min-width: 0; min-height: 0; padding: 0; }
+/* number field: recessed, darker than its surroundings, steppers on the right */
+.spanfield { display: flex; min-width: 0; margin: 4px; border: 1px solid #3a4150; border-radius: 6px; overflow: hidden;
+  background: var(--bg); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6); }
+.spanfield:focus-within, .spanfield.on { border-color: var(--accent); }
+.spanfield.on .spaninput { color: #fff; font-weight: 600; }
+.spaninput { flex: 1; min-width: 0; width: 0; border: none; background: transparent; color: var(--text); font-size: 15px; text-align: center; padding: 0; -moz-appearance: textfield; }
 .spaninput::-webkit-inner-spin-button, .spaninput::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.spaninput:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
-.spaninput.on { background: rgba(91, 140, 255, 0.22); color: #fff; }
+.spaninput:focus { outline: none; }
+.spinbtns { display: flex; flex-direction: column; width: 18px; flex: none; border-left: 1px solid #3a4150; }
+.spinbtn { flex: 1; display: grid; place-items: center; padding: 0; border: none; background: var(--panel-2); color: var(--muted); }
+.spinbtn + .spinbtn { border-top: 1px solid #3a4150; }
+.spinbtn:hover:not(:disabled) { color: var(--text); background: var(--panel); }
+.spinbtn:disabled { opacity: 0.35; cursor: default; }
+.spinbtn svg { width: 10px; height: 10px; }
 
 /* Player / empty-state header: title left, Library button top-right */
 #app { padding-top: 6px; }
