@@ -524,49 +524,8 @@ function syncEngineToVisibility() {
   const hidden = document.visibilityState === 'hidden';
   if (!state.engine || hidden === engineHidden) return;
   engineHidden = hidden;
-  const config = engineConfigFor(hidden);
-  // serialize: a quick lock/unlock shouldn't overlap two swaps
-  engineSwap = engineSwap.then(() => swapEngineConfig(config)).catch((e) => console.error('reconfigure failed', e));
+  state.engine.reconfigure(engineConfigFor(hidden)).catch((e) => console.error('reconfigure failed', e));
   diagNote(hidden ? 'engine -> background (lightest)' : 'engine -> foreground (full quality)');
-}
-
-// Changing the stretch settings resets its buffers (a blip), so duck the master
-// volume around it: ~25 ms fade out, swap, ~40 ms fade in.
-const SWAP_FADE_OUT = 0.025, SWAP_FADE_IN = 0.04;
-let engineSwap = Promise.resolve();
-async function swapEngineConfig(config) {
-  const ctx = state.audioCtx, g = state.gain?.gain, engine = state.engine;
-  if (!engine) return;
-  if (!ctx || !g || !state.playing) return engine.reconfigure(config); // silent anyway
-  const t = ctx.currentTime;
-  g.cancelScheduledValues(t);
-  g.setValueAtTime(g.value, t);
-  g.linearRampToValueAtTime(0, t + SWAP_FADE_OUT);
-  await audioClockDelay(ctx, SWAP_FADE_OUT + 0.005);
-  try {
-    await engine.reconfigure(config);
-  } finally {
-    const t2 = ctx.currentTime;
-    g.cancelScheduledValues(t2);
-    g.setValueAtTime(0, t2);
-    g.linearRampToValueAtTime(state.volume, t2 + SWAP_FADE_IN);
-  }
-}
-
-// Wait on the audio clock rather than a timer: timers can be held back for up to
-// a second while the phone is locked, but a source node's 'ended' fires on time.
-function audioClockDelay(ctx, secs) {
-  return new Promise((resolve) => {
-    const src = ctx.createConstantSource();
-    src.offset.value = 0; // outputs silence
-    src.connect(ctx.destination);
-    const done = () => { try { src.disconnect(); } catch {} resolve(); };
-    src.onended = done;
-    setTimeout(done, 1000); // safety net if 'ended' never arrives
-    const t = ctx.currentTime;
-    src.start(t);
-    src.stop(t + secs);
-  });
 }
 
 async function buildEngine() {
