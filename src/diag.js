@@ -13,8 +13,18 @@ export const ENGINE_MODES = {
   lighter: { label: 'Lighter', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
   lightest: { label: 'Lightest', config: { blockMs: 70, intervalMs: 50, splitComputation: true } },
 };
+// Engine used while the phone is locked / the app is hidden (try these by ear).
+// 'lightest' is the app default; the in-betweens overlap their windows more
+// (less crackle) at the cost of headroom.
+export const BG_MODES = {
+  lightest: { label: 'Lightest (current)', config: { blockMs: 70, intervalMs: 50, splitComputation: true } },
+  mid75: { label: 'In-between A (75/45)', config: { blockMs: 75, intervalMs: 45, splitComputation: true } },
+  mid85: { label: 'In-between B (85/45)', config: { blockMs: 85, intervalMs: 45, splitComputation: true } },
+  lighter: { label: 'Lighter (100/40)', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
+  same: { label: 'Same as on screen', config: null },
+};
 const LATENCIES = [['playback', 'Large (current)'], ['balanced', 'Medium'], ['interactive', 'Small (original)']];
-const DEFAULTS = { enabled: false, engine: 'smooth', latency: 'playback', singleStem: false, bgLight: true };
+const DEFAULTS = { enabled: false, engine: 'smooth', latency: 'playback', singleStem: false, bgEngine: 'lightest' };
 const MAX_SAMPLES = 900; // 15 min of playing at 1/s
 const MAX_EVENTS = 200;
 
@@ -24,6 +34,9 @@ function readJSON(key, fallback) {
 function writeJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
 
 const cfg = { ...DEFAULTS, ...readJSON('diag', {}) };
+if (cfg.bgLight === false && !readJSON('diag', {}).bgEngine) cfg.bgEngine = 'same'; // older checkbox setting
+delete cfg.bgLight;
+if (!BG_MODES[cfg.bgEngine]) cfg.bgEngine = 'lightest';
 if (/[?&]debug\b/.test(location.search)) cfg.enabled = true;
 const saved = readJSON('diagLog', {});
 const log = { samples: saved.samples || [], events: saved.events || [], bench: saved.bench || '' };
@@ -35,7 +48,9 @@ let wasPlaying = false;
 export const diagEngineConfig = () => (cfg.enabled ? (ENGINE_MODES[cfg.engine] || ENGINE_MODES.smooth).config : undefined);
 export const diagLatency = () => (cfg.enabled ? cfg.latency : 'playback');
 export const diagSingleStem = () => cfg.enabled && cfg.singleStem;
-export const diagBackgroundLight = () => (cfg.enabled ? cfg.bgLight !== false : true);
+export const diagBackgroundLight = () => !cfg.enabled || cfg.bgEngine !== 'same';
+// undefined = use the app's own background setting
+export const diagBackgroundConfig = () => (cfg.enabled && cfg.bgEngine !== 'same' ? BG_MODES[cfg.bgEngine].config : undefined);
 export const diagNote = (name) => { if (cfg.enabled) event(name); };
 
 const now = () => performance.now() / 1000;
@@ -128,10 +143,11 @@ function analyze() {
 async function benchmark(out) {
   const secs = 8, sr = 44100;
   const lines = [];
-  out(`Benchmarking (${Object.keys(ENGINE_MODES).length} modes × ${secs} s at 75% speed)…`);
+  const modes = [...Object.values(ENGINE_MODES), ...[BG_MODES.mid75, BG_MODES.mid85]]; // + the in-betweens
+  out(`Benchmarking (${modes.length} modes × ${secs} s at 75% speed)…`);
   const noise = (n) => { const a = new Float32Array(n); let p = 0; for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; p = 0.97 * p + 0.03 * w; a[i] = 0.5 * p + 0.1 * w; } return a; };
   const input = [noise(sr * (secs + 2)), noise(sr * (secs + 2))];
-  for (const [key, mode] of Object.entries(ENGINE_MODES)) {
+  for (const mode of modes) {
     try {
       const oc = new OfflineAudioContext(2, sr * secs, sr);
       const st = await SignalsmithStretch(oc);
@@ -163,7 +179,7 @@ function logText() {
   L.push(`App v${build} · ${matchMedia('(display-mode: standalone)').matches ? 'installed app' : 'browser tab'} · ${navigator.userAgent}`);
   L.push(`Cores ${navigator.hardwareConcurrency ?? '?'} · memory ${navigator.deviceMemory ?? '?'} GB`);
   if (ctx) L.push(`Audio: ${ctx.sampleRate} Hz · baseLatency ${ctx.baseLatency?.toFixed?.(3)} s · outputLatency ${ctx.outputLatency?.toFixed?.(3) ?? '?'} s · state ${ctx.state}`);
-  L.push(`Test switches: engine=${cfg.engine} buffers=${cfg.latency} singleStem=${cfg.singleStem} lightWhileLocked=${cfg.bgLight !== false}`);
+  L.push(`Test switches: engine=${cfg.engine} whileLocked=${cfg.bgEngine} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
   L.push(`Song: "${info.song ?? '-'}" · ${info.stems} stem(s) · speed ${Math.round(info.speed * 100)}% · pitch ${info.pitch} · EQ ${info.eq ? 'on' : 'off'}`);
   L.push('', 'VERDICT', ...verdict.map((x) => `- ${x}`), '');
   L.push('phase         intervals  secs   clock(avg/min/max)   speaker  song  off>5%');
@@ -212,7 +228,7 @@ function buildPanel() {
     <div class="diagrow"><span>Engine</span><select id="diagEngine" class="eqselect">${Object.entries(ENGINE_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagrow"><span>Audio buffers</span><select id="diagLatency" class="eqselect">${LATENCIES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
     <label class="diagrow"><span>One stem only</span><input type="checkbox" id="diagSingle" /></label>
-    <label class="diagrow"><span>Lightest engine while locked</span><input type="checkbox" id="diagBgLight" /></label>
+    <div class="diagrow"><span>Engine while locked</span><select id="diagBgEngine" class="eqselect">${Object.entries(BG_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagbtns"><button class="btn" id="diagApply">Apply (restarts the app)</button></div>
     <div class="diagbtns">
       <button class="btn" id="diagBench">Benchmark engine</button>
@@ -227,15 +243,15 @@ function buildPanel() {
   $('#diagEngine').value = cfg.engine;
   $('#diagLatency').value = cfg.latency;
   $('#diagSingle').checked = cfg.singleStem;
-  $('#diagBgLight').checked = cfg.bgLight !== false;
+  $('#diagBgEngine').value = cfg.bgEngine;
   $('#diagApply').onclick = () => {
     cfg.engine = $('#diagEngine').value;
     cfg.latency = $('#diagLatency').value;
     cfg.singleStem = $('#diagSingle').checked;
-    cfg.bgLight = $('#diagBgLight').checked;
+    cfg.bgEngine = $('#diagBgEngine').value;
     writeJSON('diag', cfg);
     log.samples = []; // fresh measurements for the new setup
-    event(`switches: engine=${cfg.engine} buffers=${cfg.latency} singleStem=${cfg.singleStem} lightWhileLocked=${cfg.bgLight !== false}`);
+    event(`switches: engine=${cfg.engine} whileLocked=${cfg.bgEngine} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
     persist();
     location.reload(); // new audio context + engines; the last song reopens
   };
@@ -275,7 +291,7 @@ function setEnabled(on) {
   }
   render();
   deps.toast(on ? 'Diagnostics on (bottom of the page)' : 'Diagnostics off');
-  if (!on && (cfg.engine !== 'smooth' || cfg.latency !== 'playback' || cfg.singleStem || cfg.bgLight === false)) {
+  if (!on && (cfg.engine !== 'smooth' || cfg.latency !== 'playback' || cfg.singleStem || cfg.bgEngine !== 'lightest')) {
     deps.toast('Diagnostics off — restart the app to drop the test switches');
   }
 }
