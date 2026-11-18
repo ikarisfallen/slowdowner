@@ -1,5 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
+import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext } from './diag.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
 import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
 import * as db from './db.js';
@@ -347,7 +348,7 @@ function render() {
     <div class="hint">Songs you add upload to a “Slowdowner” folder in your own Drive; loops &amp; settings sync via a small file there. Sign in with the same Google account on your laptop and phone to share everything.</div>
   </div>
 
-  <div class="muted" style="text-align:center; font-size:11px; margin-top:4px">Slowdowner · v${__BUILD_NUMBER__} · ${__BUILD_TIME__} UTC</div>`;
+  <div class="muted" id="buildStamp" style="text-align:center; font-size:11px; margin-top:4px">Slowdowner · v${__BUILD_NUMBER__} · ${__BUILD_TIME__} UTC</div>`;
 
   wireShell();
 }
@@ -369,7 +370,8 @@ function ensureAudio() {
   // play/pause is a fine trade for a practice player.
   const AC = window.AudioContext || window.webkitAudioContext;
   let ctx;
-  try { ctx = new AC({ latencyHint: 'playback' }); } catch { ctx = new AC(); }
+  try { ctx = new AC({ latencyHint: diagLatency() }); } catch { ctx = new AC(); }
+  diagWatchContext(ctx);
   const gain = ctx.createGain();
   gain.gain.value = state.volume;
   // Brick-wall-ish limiter so boosting quiet stems can't clip harshly.
@@ -454,7 +456,7 @@ async function recoverAudio(reason) {
     if (ctx.state !== 'running') throw new Error('context not running after resume');
     if (state.tracks.length) {
       state.engine = await buildEngine();
-      await state.engine.load(state.tracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume, pitch: t.pitch })));
+      await state.engine.load(state.tracks.slice(0, diagSingleStem() ? 1 : undefined).map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
       state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
       applyEngineParams();
       state.engine.seek(pos);
@@ -512,7 +514,7 @@ async function buildEngine() {
   const ctx = ensureAudio();
   // Each stem routes through its own gain into the EQ bus, which then feeds
   // the shared master (state.gain).
-  return await createMultiEngine(ctx, state.busIn);
+  return await createMultiEngine(ctx, state.busIn, { config: diagEngineConfig() });
 }
 
 // ---------- song loading ----------
@@ -570,7 +572,6 @@ async function loadSong(song, { autoplay = false } = {}) {
       buffer: buf,
       volume: mix.volume == null ? (td.volume == null ? 1 : td.volume) : mix.volume,
       muted: !!mix.muted,
-      pitch: mix.pitch == null ? 0 : mix.pitch,
     });
   }
   state.tracks = loadedTracks;
@@ -589,7 +590,7 @@ async function loadSong(song, { autoplay = false } = {}) {
   if (state.engine) { state.engine.dispose(); state.engine = null; }
   try {
     state.engine = await buildEngine();
-    await state.engine.load(loadedTracks.map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume, pitch: t.pitch })));
+    await state.engine.load(loadedTracks.slice(0, diagSingleStem() ? 1 : undefined).map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
     loadedTracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
   } catch (err) {
     console.error('Engine load failed:', err);
@@ -752,7 +753,7 @@ function renderTrackMix() {
     return;
   }
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="trackmix-head muted">Tracks <span class="muted" style="text-transform:none;letter-spacing:0;font-size:11px">· each stem has its own pitch</span></div>`;
+  box.innerHTML = `<div class="trackmix-head muted">Tracks</div>`;
   state.tracks.forEach((t, i) => {
     const group = el(`
       <div class="trackgroup">
@@ -761,13 +762,6 @@ function renderTrackMix() {
           <div class="tname">${escapeHtml(t.name)}</div>
           <input type="range" class="tvol" min="0" max="150" step="1" value="${Math.round(t.volume * 100)}" aria-label="${escapeHtml(t.name)} volume" />
           <div class="tval mono muted">${Math.round(t.volume * 100)}%</div>
-        </div>
-        <div class="trackpitch">
-          <span class="tplabel muted">Pitch</span>
-          <input type="range" class="tpitch" min="-12" max="12" step="1" value="${t.pitch || 0}" aria-label="${escapeHtml(t.name)} pitch" />
-          <div class="tpval mono muted">${fmtSemitones(t.pitch || 0)}</div>
-          <button class="chip tp-oct" title="Up an octave">+12</button>
-          <button class="chip tp-reset" title="Reset pitch">Reset</button>
         </div>
       </div>`);
     const row = group.querySelector('.trackrow');
@@ -790,27 +784,9 @@ function renderTrackMix() {
       persistTrackMix();
     };
 
-    // per-track pitch
-    const pslider = group.querySelector('.tpitch');
-    const pval = group.querySelector('.tpval');
-    const setTrackPitch = (semi) => {
-      const s = Math.max(-12, Math.min(12, Math.round(semi)));
-      t.pitch = s;
-      pslider.value = s;
-      pval.textContent = fmtSemitones(s);
-      state.engine?.setTrackPitch?.(i, s);
-      persistTrackMix();
-    };
-    pslider.addEventListener('input', () => setTrackPitch(Number(pslider.value)));
-    group.querySelector('.tp-oct').onclick = () => setTrackPitch(12);
-    group.querySelector('.tp-reset').onclick = () => setTrackPitch(0);
 
     box.appendChild(group);
   });
-}
-
-function fmtSemitones(s) {
-  return `${s > 0 ? '+' : ''}${s} st`;
 }
 
 // ---------- EQ UI ----------
@@ -1005,7 +981,7 @@ function persistTrackMix() {
   clearTimeout(trackMixTimer);
   trackMixTimer = setTimeout(() => {
     const trackVolumes = {};
-    state.tracks.forEach((t) => { trackVolumes[t.mixKey] = { volume: t.volume, muted: t.muted, pitch: t.pitch || 0 }; });
+    state.tracks.forEach((t) => { trackVolumes[t.mixKey] = { volume: t.volume, muted: t.muted }; });
     db.updateSongSettings(state.song.id, { trackVolumes }).then(schedulePush);
   }, 300);
 }
@@ -1842,6 +1818,13 @@ function wireShell() {
 
 // ---------- boot ----------
 render();
+initDiag({
+  getCtx: () => state.audioCtx,
+  getPosition: () => (state.engine ? state.engine.getPosition() : null),
+  isPlaying: () => state.playing,
+  getInfo: () => ({ song: state.song?.name, stems: state.tracks.length, speed: state.speed, pitch: state.pitch, eq: state.eq?.on }),
+  toast,
+});
 renderSongList().then(autoOpenLast);
 
 // Actively pull new versions: check for a waiting/updated service worker on

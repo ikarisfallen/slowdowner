@@ -4,12 +4,17 @@
 // pitch, looping and position internally. It is the cleanest of the three.
 import SignalsmithStretch from 'signalsmith-stretch';
 
-export async function createSignalsmithEngine(ctx) {
+// Same block/interval as the library's default preset (120 ms / 30 ms), but
+// with the work spread evenly across audio callbacks instead of a CPU spike
+// every interval: those spikes are what crackle when a locked phone throttles.
+const DEFAULT_CONFIG = { blockMs: 120, intervalMs: 30, splitComputation: true };
+
+// opts.config: undefined = DEFAULT_CONFIG, null = the library's own preset,
+// or a configure() object (the diagnostics panel's test switches use this).
+export async function createSignalsmithEngine(ctx, opts = {}) {
   const stretch = await SignalsmithStretch(ctx);
-  // Same block/interval as the library's default preset (120 ms / 30 ms), but
-  // with the work spread evenly across audio callbacks instead of a CPU spike
-  // every interval: those spikes are what crackle when a locked phone throttles.
-  await stretch.configure({ blockMs: 120, intervalMs: 30, splitComputation: true });
+  const config = opts.config === undefined ? DEFAULT_CONFIG : opts.config;
+  if (config) await stretch.configure(config);
 
   let duration = 0;
   let rate = 1;

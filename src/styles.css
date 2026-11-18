@@ -161,11 +161,6 @@ input[type="range"] { width: 100%; height: 34px; accent-color: var(--accent); }
 .trackgroup { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .trackgroup:last-child { border-bottom: 0; }
 .trackgroup .trackrow { padding: 2px 0; }
-.trackpitch { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
-.trackpitch .tplabel { min-width: 72px; flex: 0 0 auto; font-size: 12px; padding-left: 52px; }
-.trackpitch .tpitch { flex: 1; height: 30px; accent-color: var(--accent); min-width: 80px; }
-.trackpitch .tpval { width: 48px; text-align: right; font-size: 13px; }
-.trackpitch .chip { min-height: 32px; padding: 5px 10px; font-size: 12px; }
 
 /* Visual EQ */
 .eqhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -295,3 +290,15 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .transportrow .playbtn-sm, .transportrow .btn.primary { border: 1px solid transparent; } /* same box as the bordered buttons */
 /* The loop on/off button sits where the "Loop" label would be (same width as the Speed/Pitch labels) */
 .ctllabel .looptoggle { width: 100%; height: 44px; min-height: 0; padding: 0; border-radius: 10px; display: grid; place-items: center; }
+
+/* Diagnostics panel (hidden unless turned on) */
+.diaghelp { font-size: 13px; margin: 0 0 8px; padding-left: 18px; line-height: 1.5; }
+.diagverdict { margin: 0 0 8px; padding-left: 18px; font-size: 14px; line-height: 1.45; }
+.diagstats { font-size: 12px; margin-bottom: 10px; }
+.diagsub { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 6px 0; }
+.diagrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; font-size: 14px; }
+.diagrow input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+.diagbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.diagpre { white-space: pre-wrap; font-size: 11px; margin: 8px 0 0; color: var(--muted); }
+.diagcopy { width: 100%; height: 160px; margin-top: 8px; font-size: 11px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+.diagcopy.hidden { display: none; }
