@@ -4,17 +4,17 @@
 // pitch, looping and position internally. It is the cleanest of the three.
 import SignalsmithStretch from 'signalsmith-stretch';
 
-// Same block/interval as the library's default preset (120 ms / 30 ms), but
-// with the work spread evenly across audio callbacks instead of a CPU spike
-// every interval: those spikes are what crackle when a locked phone throttles.
-export const DEFAULT_CONFIG = { blockMs: 120, intervalMs: 30, splitComputation: true };
+// On screen: the library's own default preset (null = don't reconfigure). A
+// 120/30 + splitComputation variant was tried and made on-screen playback
+// stutter on a Pixel 8, so the original setup stays.
+export const DEFAULT_CONFIG = null;
 // While the phone is locked / the app is in the background, Android gives the
 // audio roughly 1/20th of its on-screen CPU (measured on a Pixel 8). This much
 // cheaper setting (~2x less work) keeps up there, so we switch to it while hidden.
 export const BACKGROUND_CONFIG = { blockMs: 70, intervalMs: 50, splitComputation: true };
 
 // opts.config: undefined = DEFAULT_CONFIG, null = the library's own preset,
-// or a configure() object (the diagnostics panel's test switches use this).
+// or a configure() object (the background switch and diagnostics use this).
 export async function createSignalsmithEngine(ctx, opts = {}) {
   const stretch = await SignalsmithStretch(ctx);
   const config = opts.config === undefined ? DEFAULT_CONFIG : opts.config;

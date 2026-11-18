@@ -8,8 +8,8 @@ import SignalsmithStretch from 'signalsmith-stretch';
 
 // Engine modes: Signalsmith block/interval (ms). "Smooth" is what the app uses.
 export const ENGINE_MODES = {
-  smooth: { label: 'Smooth (current)', config: { blockMs: 120, intervalMs: 30, splitComputation: true } },
-  original: { label: 'Original (spiky)', config: null }, // the library's default preset
+  original: { label: 'Original (current)', config: null }, // the library's default preset
+  smooth: { label: 'Smooth (120/30 split)', config: { blockMs: 120, intervalMs: 30, splitComputation: true } },
   lighter: { label: 'Lighter', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
   lightest: { label: 'Lightest', config: { blockMs: 70, intervalMs: 50, splitComputation: true } },
 };
@@ -23,8 +23,8 @@ export const BG_MODES = {
   lighter: { label: 'Lighter (100/40)', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
   same: { label: 'Same as on screen', config: null },
 };
-const LATENCIES = [['playback', 'Large (current)'], ['balanced', 'Medium'], ['interactive', 'Small (original)']];
-const DEFAULTS = { enabled: false, engine: 'smooth', latency: 'playback', singleStem: false, bgEngine: 'lightest' };
+const LATENCIES = [['interactive', 'Small (current)'], ['balanced', 'Medium'], ['playback', 'Large']];
+const DEFAULTS = { enabled: false, engine: 'original', latency: 'interactive', singleStem: false, bgEngine: 'lightest' };
 const MAX_SAMPLES = 900; // 15 min of playing at 1/s
 const MAX_EVENTS = 200;
 
@@ -46,7 +46,7 @@ let wasPlaying = false;
 
 // --- settings read by the app (defaults when diagnostics are off) ---
 export const diagEngineConfig = () => (cfg.enabled ? (ENGINE_MODES[cfg.engine] || ENGINE_MODES.smooth).config : undefined);
-export const diagLatency = () => (cfg.enabled ? cfg.latency : 'playback');
+export const diagLatency = () => (cfg.enabled ? cfg.latency : 'interactive');
 export const diagSingleStem = () => cfg.enabled && cfg.singleStem;
 export const diagBackgroundLight = () => !cfg.enabled || cfg.bgEngine !== 'same';
 // undefined = use the app's own background setting
@@ -291,7 +291,7 @@ function setEnabled(on) {
   }
   render();
   deps.toast(on ? 'Diagnostics on (bottom of the page)' : 'Diagnostics off');
-  if (!on && (cfg.engine !== 'smooth' || cfg.latency !== 'playback' || cfg.singleStem || cfg.bgEngine !== 'lightest')) {
+  if (!on && (cfg.engine !== 'original' || cfg.latency !== 'interactive' || cfg.singleStem || cfg.bgEngine !== 'lightest')) {
     deps.toast('Diagnostics off — restart the app to drop the test switches');
   }
 }
