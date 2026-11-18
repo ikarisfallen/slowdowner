@@ -9,10 +9,9 @@ import SignalsmithStretch from 'signalsmith-stretch';
 // every interval: those spikes are what crackle when a locked phone throttles.
 export const DEFAULT_CONFIG = { blockMs: 120, intervalMs: 30, splitComputation: true };
 // While the phone is locked / the app is in the background, Android gives the
-// audio roughly 1/20th of its on-screen CPU (measured on a Pixel 8), so we switch
-// to a cheaper setting while hidden. "Lighter" (~1.5x less work) rather than the
-// lightest (70/50): that one kept up too but its low window overlap crackled.
-export const BACKGROUND_CONFIG = { blockMs: 100, intervalMs: 40, splitComputation: true };
+// audio roughly 1/20th of its on-screen CPU (measured on a Pixel 8). This much
+// cheaper setting (~2x less work) keeps up there, so we switch to it while hidden.
+export const BACKGROUND_CONFIG = { blockMs: 70, intervalMs: 50, splitComputation: true };
 
 // opts.config: undefined = DEFAULT_CONFIG, null = the library's own preset,
 // or a configure() object (the diagnostics panel's test switches use this).

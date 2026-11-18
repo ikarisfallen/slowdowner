@@ -512,7 +512,7 @@ function hideAudioFailBanner() {
 }
 
 // Locked phone / other app: Android gives background audio only a small slice
-// of the CPU, so the time-stretch drops to a lighter setting while hidden
+// of the CPU, so the time-stretch drops to its lightest setting while hidden
 // and goes back to full quality when you return.
 let engineHidden = false;
 function engineConfigFor(hidden) {
@@ -525,7 +525,7 @@ function syncEngineToVisibility() {
   if (!state.engine || hidden === engineHidden) return;
   engineHidden = hidden;
   state.engine.reconfigure(engineConfigFor(hidden)).catch((e) => console.error('reconfigure failed', e));
-  diagNote(hidden ? 'engine -> background (lighter)' : 'engine -> foreground (full quality)');
+  diagNote(hidden ? 'engine -> background (lightest)' : 'engine -> foreground (full quality)');
 }
 
 async function buildEngine() {
