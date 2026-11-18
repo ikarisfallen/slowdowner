@@ -80,6 +80,10 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
       t.gain.gain.value = muted ? 0 : t.volume;
     },
 
+    async reconfigure(config) {
+      await Promise.all(tracks.map((t) => t.engine.reconfigure(config)));
+    },
+
     dispose() {
       for (const t of tracks) {
         try { t.engine.dispose(); } catch {}

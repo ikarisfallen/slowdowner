@@ -1,6 +1,7 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext } from './diag.js';
+import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagNote } from './diag.js';
+import { DEFAULT_CONFIG, BACKGROUND_CONFIG } from './engines/signalsmith.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
 import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
 import * as db from './db.js';
@@ -510,11 +511,29 @@ function hideAudioFailBanner() {
   $('#audioFail')?.classList.add('hidden');
 }
 
+// Locked phone / other app: Android gives background audio only a small slice
+// of the CPU, so the time-stretch drops to its lightest setting while hidden
+// and goes back to full quality when you return.
+let engineHidden = false;
+function engineConfigFor(hidden) {
+  if (hidden && diagBackgroundLight()) return BACKGROUND_CONFIG;
+  const d = diagEngineConfig();
+  return d === undefined ? DEFAULT_CONFIG : d;
+}
+function syncEngineToVisibility() {
+  const hidden = document.visibilityState === 'hidden';
+  if (!state.engine || hidden === engineHidden) return;
+  engineHidden = hidden;
+  state.engine.reconfigure(engineConfigFor(hidden)).catch((e) => console.error('reconfigure failed', e));
+  diagNote(hidden ? 'engine -> background (lightest)' : 'engine -> foreground (full quality)');
+}
+
 async function buildEngine() {
   const ctx = ensureAudio();
   // Each stem routes through its own gain into the EQ bus, which then feeds
   // the shared master (state.gain).
-  return await createMultiEngine(ctx, state.busIn, { config: diagEngineConfig() });
+  engineHidden = document.visibilityState === 'hidden';
+  return await createMultiEngine(ctx, state.busIn, { config: engineConfigFor(engineHidden) });
 }
 
 // ---------- song loading ----------
@@ -1730,6 +1749,7 @@ function wireShell() {
   // The OS releases the screen wake lock when the tab is hidden; re-acquire it
   // when we come back if a track is still playing.
   document.addEventListener('visibilitychange', () => {
+    syncEngineToVisibility();
     if (document.visibilityState === 'visible' && state.playing) acquireWakeLock();
   });
 

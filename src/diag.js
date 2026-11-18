@@ -14,7 +14,7 @@ export const ENGINE_MODES = {
   lightest: { label: 'Lightest', config: { blockMs: 70, intervalMs: 50, splitComputation: true } },
 };
 const LATENCIES = [['playback', 'Large (current)'], ['balanced', 'Medium'], ['interactive', 'Small (original)']];
-const DEFAULTS = { enabled: false, engine: 'smooth', latency: 'playback', singleStem: false };
+const DEFAULTS = { enabled: false, engine: 'smooth', latency: 'playback', singleStem: false, bgLight: true };
 const MAX_SAMPLES = 900; // 15 min of playing at 1/s
 const MAX_EVENTS = 200;
 
@@ -35,6 +35,8 @@ let wasPlaying = false;
 export const diagEngineConfig = () => (cfg.enabled ? (ENGINE_MODES[cfg.engine] || ENGINE_MODES.smooth).config : undefined);
 export const diagLatency = () => (cfg.enabled ? cfg.latency : 'playback');
 export const diagSingleStem = () => cfg.enabled && cfg.singleStem;
+export const diagBackgroundLight = () => (cfg.enabled ? cfg.bgLight !== false : true);
+export const diagNote = (name) => { if (cfg.enabled) event(name); };
 
 const now = () => performance.now() / 1000;
 // performance.now() restarts with each page load: tag samples so the analysis never
@@ -161,7 +163,7 @@ function logText() {
   L.push(`App v${build} · ${matchMedia('(display-mode: standalone)').matches ? 'installed app' : 'browser tab'} · ${navigator.userAgent}`);
   L.push(`Cores ${navigator.hardwareConcurrency ?? '?'} · memory ${navigator.deviceMemory ?? '?'} GB`);
   if (ctx) L.push(`Audio: ${ctx.sampleRate} Hz · baseLatency ${ctx.baseLatency?.toFixed?.(3)} s · outputLatency ${ctx.outputLatency?.toFixed?.(3) ?? '?'} s · state ${ctx.state}`);
-  L.push(`Test switches: engine=${cfg.engine} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
+  L.push(`Test switches: engine=${cfg.engine} buffers=${cfg.latency} singleStem=${cfg.singleStem} lightWhileLocked=${cfg.bgLight !== false}`);
   L.push(`Song: "${info.song ?? '-'}" · ${info.stems} stem(s) · speed ${Math.round(info.speed * 100)}% · pitch ${info.pitch} · EQ ${info.eq ? 'on' : 'off'}`);
   L.push('', 'VERDICT', ...verdict.map((x) => `- ${x}`), '');
   L.push('phase         intervals  secs   clock(avg/min/max)   speaker  song  off>5%');
@@ -210,6 +212,7 @@ function buildPanel() {
     <div class="diagrow"><span>Engine</span><select id="diagEngine" class="eqselect">${Object.entries(ENGINE_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagrow"><span>Audio buffers</span><select id="diagLatency" class="eqselect">${LATENCIES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
     <label class="diagrow"><span>One stem only</span><input type="checkbox" id="diagSingle" /></label>
+    <label class="diagrow"><span>Lightest engine while locked</span><input type="checkbox" id="diagBgLight" /></label>
     <div class="diagbtns"><button class="btn" id="diagApply">Apply (restarts the app)</button></div>
     <div class="diagbtns">
       <button class="btn" id="diagBench">Benchmark engine</button>
@@ -224,13 +227,15 @@ function buildPanel() {
   $('#diagEngine').value = cfg.engine;
   $('#diagLatency').value = cfg.latency;
   $('#diagSingle').checked = cfg.singleStem;
+  $('#diagBgLight').checked = cfg.bgLight !== false;
   $('#diagApply').onclick = () => {
     cfg.engine = $('#diagEngine').value;
     cfg.latency = $('#diagLatency').value;
     cfg.singleStem = $('#diagSingle').checked;
+    cfg.bgLight = $('#diagBgLight').checked;
     writeJSON('diag', cfg);
     log.samples = []; // fresh measurements for the new setup
-    event(`switches: engine=${cfg.engine} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
+    event(`switches: engine=${cfg.engine} buffers=${cfg.latency} singleStem=${cfg.singleStem} lightWhileLocked=${cfg.bgLight !== false}`);
     persist();
     location.reload(); // new audio context + engines; the last song reopens
   };
@@ -270,7 +275,7 @@ function setEnabled(on) {
   }
   render();
   deps.toast(on ? 'Diagnostics on (bottom of the page)' : 'Diagnostics off');
-  if (!on && (cfg.engine !== 'smooth' || cfg.latency !== 'playback' || cfg.singleStem)) {
+  if (!on && (cfg.engine !== 'smooth' || cfg.latency !== 'playback' || cfg.singleStem || cfg.bgLight === false)) {
     deps.toast('Diagnostics off — restart the app to drop the test switches');
   }
 }
