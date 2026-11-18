@@ -516,15 +516,24 @@ function hideAudioFailBanner() {
 // and goes back to full quality when you return.
 let engineHidden = false;
 function engineConfigFor(hidden) {
-  if (hidden && diagBackgroundLight()) return diagBackgroundConfig() ?? BACKGROUND_CONFIG;
   const d = diagEngineConfig();
-  return d === undefined ? DEFAULT_CONFIG : d;
+  const onScreen = d === undefined ? DEFAULT_CONFIG : d;
+  // One engine (a song without stems) at full quality costs about what two at
+  // the lightest setting do, which keeps up when locked, so only stem songs
+  // need to drop down (the lighter settings crackle, worse at slow speeds).
+  const engines = diagSingleStem() ? 1 : state.tracks.length;
+  if (hidden && engines > 1 && diagBackgroundLight()) return diagBackgroundConfig() ?? BACKGROUND_CONFIG;
+  return onScreen;
 }
+let engineConfigApplied = null;
 function syncEngineToVisibility() {
   const hidden = document.visibilityState === 'hidden';
   if (!state.engine || hidden === engineHidden) return;
   engineHidden = hidden;
-  state.engine.reconfigure(engineConfigFor(hidden)).catch((e) => console.error('reconfigure failed', e));
+  const config = engineConfigFor(hidden);
+  if (JSON.stringify(config) === JSON.stringify(engineConfigApplied)) return; // nothing to change (no blip)
+  engineConfigApplied = config;
+  state.engine.reconfigure(config).catch((e) => console.error('reconfigure failed', e));
   diagNote(hidden ? 'engine -> background (locked setting)' : 'engine -> foreground (full quality)');
 }
 
@@ -533,7 +542,8 @@ async function buildEngine() {
   // Each stem routes through its own gain into the EQ bus, which then feeds
   // the shared master (state.gain).
   engineHidden = document.visibilityState === 'hidden';
-  return await createMultiEngine(ctx, state.busIn, { config: engineConfigFor(engineHidden) });
+  engineConfigApplied = engineConfigFor(engineHidden);
+  return await createMultiEngine(ctx, state.busIn, { config: engineConfigApplied });
 }
 
 // ---------- song loading ----------
