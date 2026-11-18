@@ -1,6 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagBlendWhileLocked, diagNote } from './diag.js';
+import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagNote } from './diag.js';
 import { DEFAULT_CONFIG, BACKGROUND_CONFIG } from './engines/signalsmith.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
 import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
@@ -459,7 +459,6 @@ async function recoverAudio(reason) {
       state.engine = await buildEngine();
       await state.engine.load(state.tracks.slice(0, diagSingleStem() ? 1 : undefined).map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
       state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
-      prepareBlendSoon();
       applyEngineParams();
       state.engine.seek(pos);
       updatePlayhead(pos);
@@ -527,60 +526,15 @@ function engineConfigFor(hidden) {
   return onScreen;
 }
 let engineConfigApplied = null;
-let engineSwap = Promise.resolve(); // serializes lock/unlock switches
 function syncEngineToVisibility() {
   const hidden = document.visibilityState === 'hidden';
   if (!state.engine || hidden === engineHidden) return;
   engineHidden = hidden;
-  const engine = state.engine;
-  const stems = (diagSingleStem() ? 1 : state.tracks.length) > 1;
-  if (stems && engine.enterBlend && diagBackgroundLight() && diagBlendWhileLocked()) {
-    // Stem songs: while locked, play one full-quality engine on the stems summed
-    // together (see engines/multi.js); the stem engines pause at a light setting.
-    const onScreen = engineConfigFor(false), light = engineConfigFor(true);
-    engineSwap = engineSwap.then(async () => {
-      if (state.engine !== engine) return;
-      if (hidden) {
-        const ok = await engine.enterBlend({
-          blendConfig: onScreen,
-          stemConfig: light,
-          stillWanted: () => document.visibilityState === 'hidden' && state.engine === engine,
-        });
-        engineConfigApplied = light;
-        diagNote(ok ? 'stems -> blend (one full-quality engine)' : 'blend handover skipped');
-      } else {
-        if (engine.inBlend) {
-          await engine.exitBlend({ stemConfig: onScreen });
-          diagNote('blend -> stems');
-        } else if (JSON.stringify(engineConfigApplied) !== JSON.stringify(onScreen)) {
-          await engine.reconfigure(onScreen);
-        }
-        engineConfigApplied = onScreen;
-        prepareBlendSoon();
-      }
-    }).catch((e) => console.error('blend switch failed', e));
-    return;
-  }
   const config = engineConfigFor(hidden);
   if (JSON.stringify(config) === JSON.stringify(engineConfigApplied)) return; // nothing to change (no blip)
   engineConfigApplied = config;
   state.engine.reconfigure(config).catch((e) => console.error('reconfigure failed', e));
   diagNote(hidden ? 'engine -> background (locked setting)' : 'engine -> foreground (full quality)');
-}
-
-// Build the stem blend ahead of time (a few seconds after a stem song loads, and
-// after volume/mute changes) so locking the phone is a quick handover.
-let blendPrepTimer;
-function prepareBlendSoon(delay = 2500) {
-  clearTimeout(blendPrepTimer);
-  const engine = state.engine;
-  if (!engine?.prepareBlend || engine.tracks.length < 2 || !diagBackgroundLight() || !diagBlendWhileLocked()) return;
-  blendPrepTimer = setTimeout(() => {
-    if (state.engine !== engine || document.visibilityState !== 'visible' || engine.blendReady() || engine.inBlend) return;
-    engine.prepareBlend(engineConfigFor(false))
-      .then((b) => b && diagNote('stem blend ready'))
-      .catch((e) => console.error('blend build failed', e));
-  }, delay);
 }
 
 async function buildEngine() {
@@ -676,7 +630,6 @@ async function loadSong(song, { autoplay = false } = {}) {
     return; // don't rethrow — avoid an uncaught rejection
   }
   renderTrackMix();
-  prepareBlendSoon();
 
   // loops
   state.draftLoop = null;
@@ -850,7 +803,6 @@ function renderTrackMix() {
       state.engine?.setTrackVolume(i, v);
       valEl.textContent = `${Math.round(v * 100)}%`;
       persistTrackMix();
-      prepareBlendSoon(1500); // the blend bakes in volumes/mutes
     });
     group.querySelector('.mutebtn').onclick = (e) => {
       t.muted = !t.muted;
@@ -859,7 +811,6 @@ function renderTrackMix() {
       e.currentTarget.textContent = t.muted ? '🔇' : '🔊';
       row.classList.toggle('muted-row', t.muted);
       persistTrackMix();
-      prepareBlendSoon(1500); // the blend bakes in volumes/mutes
     };
 
 

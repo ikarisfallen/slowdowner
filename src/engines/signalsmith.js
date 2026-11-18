@@ -73,14 +73,7 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
       apply(); // apply rate/pitch/loop, continuing from that offset (no input = keep current)
     },
 
-    // when: optional audio-clock time to stop at (for a seamless handover).
-    pause(when) {
-      if (when != null && playing) {
-        position = stretch.inputTime + Math.max(0, when - ctx.currentTime) * rate;
-        playing = false;
-        stretch.stop(when);
-        return;
-      }
+    pause() {
       position = stretch.inputTime;
       playing = false;
       stretch.stop();
