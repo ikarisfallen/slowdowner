@@ -313,3 +313,12 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .metroon input { width: 18px; height: 18px; accent-color: var(--accent); }
 .metroseg .seg-btn { min-width: 44px; min-height: 38px; }
 .metrobpm { font-size: 12px; margin-left: auto; white-space: nowrap; }
+
+/* Metronome second row: click volume + beat offset for 2/4 and 1/4 */
+.metrorow2 { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.metrorow2.hidden { display: none; }
+.metrolbl { font-size: 13px; flex: none; }
+.metrorow2 input[type="range"] { flex: 1; min-width: 60px; height: 32px; }
+.metroval { font-size: 12px; width: 36px; flex: none; }
+.metrooffset { flex: none; width: 128px; height: 40px; }
+.metrooffset.dim { opacity: 0.4; }

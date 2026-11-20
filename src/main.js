@@ -129,7 +129,7 @@ const state = {
   markersExpanded: false,
   span: 1, // marker-loop window size (in marker intervals)
   spanCustomOpen: false, // the Custom span input is showing
-  metro: null, // this song's detected beats + click settings { beats, bpm, on, sub }
+  metro: null, // this song's detected beats + click settings { beats, bpm, on, sub, vol, offset }
   markerWinIdx: 0, // start marker index of the loop window
   markerLoopActive: false,
   draftLoop: null, // { start, end }
@@ -341,6 +341,17 @@ function render() {
         </span>
         <span class="mono muted metrobpm" id="metroBpm"></span>
       </span>
+    </div>
+    <div class="metrorow2 hidden" id="metroRow2">
+      <span class="muted metrolbl">Vol</span>
+      <input type="range" id="metroVol" min="0" max="100" step="1" aria-label="Metronome volume" />
+      <span class="mono muted metroval" id="metroVolVal"></span>
+      <span class="muted metrolbl" title="Shift which beats 2/4 and 1/4 click on">Offset</span>
+      <div class="segline metrooffset" id="metroOffSeg" title="Shift which beats 2/4 and 1/4 click on">
+        <button class="seg-btn" id="metroOffDown" aria-label="Offset one beat earlier">−1</button>
+        <div class="spanfield pitchfield"><input type="number" id="metroOff" class="spaninput" min="0" max="3" step="1" aria-label="Beat offset" /></div>
+        <button class="seg-btn" id="metroOffUp" aria-label="Offset one beat later">+1</button>
+      </div>
     </div>
 
     <div class="hint">
@@ -768,17 +779,26 @@ function pausePlayback() {
 // drifting tempo; they're saved per song (settings.metronome) and sync.
 function normalizeMetro(m) {
   if (!m || !Array.isArray(m.beats) || m.beats.length < 2) return null;
-  return { beats: m.beats, bpm: m.bpm || 0, on: !!m.on, sub: [1, 2, 4].includes(m.sub) ? m.sub : 4 };
+  const vol = typeof m.vol === 'number' ? Math.min(1, Math.max(0, m.vol)) : 0.7;
+  return { beats: m.beats, bpm: m.bpm || 0, on: !!m.on, sub: [1, 2, 4].includes(m.sub) ? m.sub : 4, vol, offset: ((m.offset | 0) % 4 + 4) % 4 };
 }
 function syncMetroUI() {
   const m = state.metro;
   $('#metroCtl').classList.toggle('hidden', !m);
+  $('#metroRow2').classList.toggle('hidden', !m);
   $('#beatDetectLabel').classList.toggle('hidden', !!m); // just the icon once there are beats
   $('#beatDetect').title = m ? 'Detect the beats again' : 'Find the beats (the tempo can drift) and show them as ticks';
   if (!m) return;
   $('#metroOn').checked = m.on;
   document.querySelectorAll('[data-metrosub]').forEach((b) => b.classList.toggle('on', Number(b.dataset.metrosub) === m.sub));
   $('#metroBpm').textContent = m.bpm ? `~${m.bpm} BPM` : '';
+  $('#metroVol').value = Math.round(m.vol * 100);
+  $('#metroVolVal').textContent = `${Math.round(m.vol * 100)}%`;
+  // offset only matters when clicking every 2nd / 4th beat
+  const offOn = m.sub !== 4;
+  $('#metroOffSeg').classList.toggle('dim', !offOn);
+  for (const id of ['#metroOffDown', '#metroOffUp', '#metroOff']) $(id).disabled = !offOn;
+  if (document.activeElement !== $('#metroOff')) $('#metroOff').value = m.offset;
 }
 let metroPersistTimer;
 function persistMetro() {
@@ -814,7 +834,7 @@ async function detectBeats() {
     });
     if (state.song !== song) return; // switched songs meanwhile
     if (!res.ok) { toast(`Couldn't find the beat: ${res.error}`); return; }
-    state.metro = { beats: res.beats, bpm: res.bpm, on: state.metro?.on ?? false, sub: state.metro?.sub ?? 4 };
+    state.metro = { beats: res.beats, bpm: res.bpm, on: state.metro?.on ?? false, sub: state.metro?.sub ?? 4, vol: state.metro?.vol ?? 0.7, offset: state.metro?.offset ?? 0 };
     wave.setState({ beats: state.metro.beats });
     metroResetClicks();
     persistMetro();
@@ -840,12 +860,12 @@ function metroResetClicks() {
   metroClicks.keys.clear();
   metroClicks.valid = false;
 }
-function playClick(when) {
+function playClick(when, vol) {
   const ctx = state.audioCtx;
   const osc = ctx.createOscillator(), g = ctx.createGain();
   osc.frequency.value = 1400; // every click alike (no "beat 1")
   g.gain.setValueAtTime(0, when);
-  g.gain.linearRampToValueAtTime(0.45, when + 0.002);
+  g.gain.linearRampToValueAtTime(0.65 * vol, when + 0.002);
   g.gain.exponentialRampToValueAtTime(0.001, when + 0.045);
   osc.connect(g);
   g.connect(state.gain); // after the EQ, so the click isn't EQ'd
@@ -890,7 +910,9 @@ function metroTick() {
   metroClicks.anchorT = now;
 
   const B = m.beats;
-  const want = (i) => i % (4 / m.sub) === 0; // 4/4 every beat, 2/4 every 2nd, 1/4 every 4th
+  // 4/4 every beat, 2/4 every 2nd, 1/4 every 4th, shifted by the offset
+  const want = (i) => (((i - m.offset) % (4 / m.sub)) + 4) % (4 / m.sub) === 0;
+  if (m.vol <= 0) return;
   const schedule = (from, to, whenAt, cycle) => {
     let lo = 0, hi = B.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (B[mid] < from) lo = mid + 1; else hi = mid; }
@@ -900,7 +922,7 @@ function metroTick() {
       const when = whenAt(B[i]);
       if (when < now - 0.005) continue;
       metroClicks.keys.add(key);
-      metroClicks.scheduled.push({ when, osc: playClick(Math.max(when, now)) });
+      metroClicks.scheduled.push({ when, osc: playClick(Math.max(when, now), m.vol) });
     }
   };
   const horizon = (document.visibilityState === 'hidden' ? 1.6 : 0.2) * rate; // song seconds ahead
@@ -2010,6 +2032,23 @@ function wireShell() {
     syncMetroUI();
     persistMetro();
   }));
+  $('#metroVol').addEventListener('input', (e) => {
+    if (!state.metro) return;
+    state.metro.vol = Number(e.target.value) / 100;
+    $('#metroVolVal').textContent = `${e.target.value}%`;
+    persistMetro();
+  });
+  const setMetroOffset = (v) => {
+    if (!state.metro || isNaN(v)) return;
+    state.metro.offset = ((Math.round(v) % 4) + 4) % 4;
+    metroResetClicks();
+    syncMetroUI();
+    persistMetro();
+  };
+  $('#metroOffDown').onclick = () => setMetroOffset((state.metro?.offset ?? 0) - 1);
+  $('#metroOffUp').onclick = () => setMetroOffset((state.metro?.offset ?? 0) + 1);
+  $('#metroOff').addEventListener('focus', (e) => e.target.select());
+  $('#metroOff').addEventListener('change', (e) => setMetroOffset(parseInt(e.target.value, 10)));
   setInterval(metroTick, 25);
 
 

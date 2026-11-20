@@ -26,6 +26,9 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
   let loop = null; // { start, end }
   let playing = false;
   let position = 0; // cached source position for when paused
+  // Right after play()/seek() the node's reported inputTime is stale until its
+  // next update (~30 ms), so for a moment report where we started from instead.
+  let fresh = null; // { pos, at } in input seconds / audio-clock seconds
   // The stretcher's own delay (seconds): its reported input position runs ahead
   // of what you hear by about this much. Re-read whenever the settings change.
   let latency = 0;
@@ -79,6 +82,7 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
       // `when` is shared across engines so stems launch on the same clock instant.
       stretch.start(when, position);
       apply(); // apply rate/pitch/loop, continuing from that offset (no input = keep current)
+      fresh = { pos: position, at: when };
     },
 
     pause() {
@@ -90,6 +94,7 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
     seek(seconds) {
       position = Math.max(0, Math.min(seconds, duration));
       apply({ input: position });
+      if (playing) fresh = { pos: position, at: ctx.currentTime };
     },
 
     setSpeed(r) {
@@ -108,7 +113,14 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
     },
 
     getPosition() {
-      return playing ? stretch.inputTime : position;
+      if (!playing) return position;
+      if (fresh) {
+        const dt = ctx.currentTime - fresh.at;
+        // same convention as inputTime: ahead of what's heard by the stretch delay
+        if (dt < 0.12) return fresh.pos + latency / 2 + (Math.max(0, dt) + latency / 2) * rate;
+        fresh = null;
+      }
+      return stretch.inputTime;
     },
 
     // Swap the stretch settings while playing (e.g. lighter when the app is
