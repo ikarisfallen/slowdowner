@@ -346,12 +346,10 @@ function render() {
       <span class="muted metrolbl">Vol</span>
       <input type="range" id="metroVol" min="0" max="100" step="1" aria-label="Metronome volume" />
       <span class="mono muted metroval" id="metroVolVal"></span>
-      <span class="muted metrolbl" title="Shift which beats 2/4 and 1/4 click on">Offset</span>
-      <div class="segline metrooffset" id="metroOffSeg" title="Shift which beats 2/4 and 1/4 click on">
-        <button class="seg-btn" id="metroOffDown" aria-label="Offset one beat earlier">−1</button>
-        <div class="spanfield pitchfield"><input type="number" id="metroOff" class="spaninput" min="0" max="3" step="1" aria-label="Beat offset" /></div>
-        <button class="seg-btn" id="metroOffUp" aria-label="Offset one beat later">+1</button>
-      </div>
+      <span class="muted metrolbl" title="Which beat counts as one for 2/4 and 1/4">One</span>
+      <span class="seg metrooffset" id="metroOffSeg" title="Which beat counts as one for 2/4 and 1/4">
+        ${[0, 1, 2, 3].map((o) => `<button class="seg-btn" data-metrooff="${o}">${o + 1}</button>`).join('')}
+      </span>
     </div>
 
     <div class="hint">
@@ -794,11 +792,15 @@ function syncMetroUI() {
   $('#metroBpm').textContent = m.bpm ? `~${m.bpm} BPM` : '';
   $('#metroVol').value = Math.round(m.vol * 100);
   $('#metroVolVal').textContent = `${Math.round(m.vol * 100)}%`;
-  // offset only matters when clicking every 2nd / 4th beat
-  const offOn = m.sub !== 4;
-  $('#metroOffSeg').classList.toggle('dim', !offOn);
-  for (const id of ['#metroOffDown', '#metroOffUp', '#metroOff']) $(id).disabled = !offOn;
-  if (document.activeElement !== $('#metroOff')) $('#metroOff').value = m.offset;
+  // offset (start on beat 1-4) only matters for every 2nd / 4th beat: 2/4 has
+  // two distinct starts, 1/4 four, 4/4 none
+  const groups = 4 / m.sub;
+  $('#metroOffSeg').classList.toggle('dim', groups === 1);
+  document.querySelectorAll('[data-metrooff]').forEach((b) => {
+    const o = Number(b.dataset.metrooff);
+    b.disabled = groups === 1 || o >= groups;
+    b.classList.toggle('on', groups > 1 && o === m.offset % groups);
+  });
 }
 let metroPersistTimer;
 function persistMetro() {
@@ -2038,17 +2040,13 @@ function wireShell() {
     $('#metroVolVal').textContent = `${e.target.value}%`;
     persistMetro();
   });
-  const setMetroOffset = (v) => {
-    if (!state.metro || isNaN(v)) return;
-    state.metro.offset = ((Math.round(v) % 4) + 4) % 4;
+  document.querySelectorAll('[data-metrooff]').forEach((b) => (b.onclick = () => {
+    if (!state.metro) return;
+    state.metro.offset = Number(b.dataset.metrooff);
     metroResetClicks();
     syncMetroUI();
     persistMetro();
-  };
-  $('#metroOffDown').onclick = () => setMetroOffset((state.metro?.offset ?? 0) - 1);
-  $('#metroOffUp').onclick = () => setMetroOffset((state.metro?.offset ?? 0) + 1);
-  $('#metroOff').addEventListener('focus', (e) => e.target.select());
-  $('#metroOff').addEventListener('change', (e) => setMetroOffset(parseInt(e.target.value, 10)));
+  }));
   setInterval(metroTick, 25);
 
 
