@@ -27,6 +27,9 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
     get duration() {
       return tracks.reduce((m, t) => Math.max(m, t.engine.duration), 0);
     },
+    get latency() {
+      return first()?.latency || 0;
+    },
 
     // items: [{ buffer, name, volume }]
     async load(items) {

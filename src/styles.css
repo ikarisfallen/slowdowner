@@ -302,3 +302,14 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 .diagpre { white-space: pre-wrap; font-size: 11px; margin: 8px 0 0; color: var(--muted); }
 .diagcopy { width: 100%; height: 160px; margin-top: 8px; font-size: 11px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
 .diagcopy.hidden { display: none; }
+
+/* Metronome row: detect beats, then Click + which beats */
+.metrorow { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 40px; }
+.metrobtn { min-height: 40px; padding: 6px 12px; gap: 6px; }
+.metrobtn:disabled { opacity: 0.6; }
+.metroctl { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.metroctl.hidden { display: none; }
+.metroon { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.metroon input { width: 18px; height: 18px; accent-color: var(--accent); }
+.metroseg .seg-btn { min-width: 44px; min-height: 38px; }
+.metrobpm { font-size: 12px; margin-left: auto; white-space: nowrap; }

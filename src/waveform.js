@@ -45,6 +45,7 @@ export class Waveform {
     this.loop = null; // { start, end }
     this.savedLoops = [];
     this.markers = [];
+    this.beats = []; // detected beat times (s), drawn as small ticks along the bottom
     this.zoom = 1; // 1 = whole song; >1 = zoomed in
     this.viewStart = 0; // left edge of the view, in seconds
     this._drag = null;
@@ -79,7 +80,7 @@ export class Waveform {
     this.viewStart = 0;
     this.draw();
   }
-  setState({ position, loop, savedLoops, markers }) {
+  setState({ position, loop, savedLoops, markers, beats }) {
     if (position != null) {
       this.position = position;
       this._follow(); // keep the playhead in view when zoomed
@@ -87,6 +88,7 @@ export class Waveform {
     if (loop !== undefined) this.loop = loop;
     if (savedLoops) this.savedLoops = savedLoops;
     if (markers !== undefined) this.markers = markers || [];
+    if (beats !== undefined) this.beats = beats || [];
     this.draw();
   }
 
@@ -264,6 +266,25 @@ export class Waveform {
       lastLabelRight = lx + tw;
     });
     c.restore();
+
+    // beat ticks along the bottom, all alike (no "beat 1": the beat can shift).
+    // When they'd crowd together, show every 2nd / 4th / ... until you zoom in.
+    if (this.beats.length > 1) {
+      const B = this.beats;
+      const pxPerBeat = (((B[B.length - 1] - B[0]) / (B.length - 1)) / (vEnd - vStart)) * w;
+      let step = 1;
+      while (pxPerBeat * step < 4 && step <= 16) step *= 2;
+      if (step <= 16) {
+        let lo = 0, hi = B.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (B[m] < vStart) lo = m + 1; else hi = m; }
+        c.fillStyle = 'rgba(255,255,255,0.6)';
+        for (let i = lo; i < B.length && B[i] <= vEnd; i++) {
+          if (i % step) continue;
+          const x = Math.round(this._timeToX(B[i]));
+          c.fillRect(x, h - 5, 1, 5);
+        }
+      }
+    }
 
     // playhead
     if (this.position >= vStart && this.position <= vEnd) {

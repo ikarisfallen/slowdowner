@@ -59,6 +59,7 @@ const ICON_TRASH = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" 
 // magnifier: round lens with a + / − inside, handle to the lower right
 const ICON_ZOOM_IN = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M15 15l5.5 5.5M7 10h6M10 7v6"/></svg>`;
 const ICON_ZOOM_OUT = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M15 15l5.5 5.5M7 10h6"/></svg>`;
+const ICON_METRO = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l4 18H5L9 3z"/><path d="M12 15l5-8M7.5 17h9"/></svg>`;
 const ICON_FRAME = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5v14M20 5v14M8 12h8M10.5 9.5 8 12l2.5 2.5M13.5 9.5 16 12l-2.5 2.5"/></svg>`;
 const ICON_LOOP = `<svg viewBox="0 0 100 100" fill="currentColor" aria-hidden="true"><path d="M83.729,23.57c-0.007-0.562-0.32-1.084-0.825-1.337c-0.503-0.259-1.107-0.212-1.568,0.114l-5.944,4.262l-0.468,0.336c-6.405-6.391-15.196-10.389-24.938-10.389c-13.284,0-24.878,7.354-30.941,18.201l0.024,0.013c-0.548,1.183-0.124,2.607,1.026,3.271c0.001,0,0.001,0,0.002,0.001l8.136,4.697c1.218,0.704,2.777,0.287,3.48-0.932c0.006-0.011,0.009-0.023,0.015-0.034c3.591-6.404,10.438-10.747,18.289-10.747c4.879,0,9.352,1.696,12.914,4.5l-1.001,0.719l-5.948,4.262c-0.455,0.327-0.696,0.89-0.611,1.447c0.081,0.558,0.471,1.028,1.008,1.208l25.447,8.669c0.461,0.162,0.966,0.084,1.367-0.203c0.399-0.29,0.629-0.746,0.627-1.23L83.729,23.57z"/><path d="M79.904,61.958c0,0-0.001,0-0.002-0.001l-8.136-4.697c-1.218-0.704-2.777-0.287-3.48,0.932c-0.006,0.011-0.009,0.023-0.015,0.034c-3.591,6.404-10.438,10.747-18.289,10.747c-4.879,0-9.352-1.696-12.914-4.5l1.001-0.719l5.948-4.262c0.455-0.327,0.696-0.89,0.611-1.447c-0.081-0.558-0.471-1.028-1.008-1.208l-25.447-8.669c-0.461-0.162-0.966-0.084-1.367,0.203c-0.399,0.29-0.629,0.746-0.627,1.23l0.092,26.828c0.007,0.562,0.32,1.084,0.825,1.337c0.503,0.259,1.107,0.212,1.568-0.114l5.944-4.262l0.468-0.336c6.405,6.391,15.196,10.389,24.938,10.389c13.284,0,24.878-7.354,30.941-18.201L80.93,65.23C81.478,64.046,81.055,62.623,79.904,61.958z"/></svg>`;
 
@@ -128,6 +129,7 @@ const state = {
   markersExpanded: false,
   span: 1, // marker-loop window size (in marker intervals)
   spanCustomOpen: false, // the Custom span input is showing
+  metro: null, // this song's detected beats + click settings { beats, bpm, on, sub }
   markerWinIdx: 0, // start marker index of the loop window
   markerLoopActive: false,
   draftLoop: null, // { start, end }
@@ -326,6 +328,19 @@ function render() {
         </div>
         <div class="eqhint muted">Drag a dot: ↔ frequency, ↕ boost/cut · scroll on the graph for width (Q) · double-tap a dot to flatten it</div>
       </div>
+    </div>
+
+    <div class="metrorow">
+      <button class="btn metrobtn" id="beatDetect" title="Find the beats (the tempo can drift) and show them as ticks">${ICON_METRO}<span id="beatDetectLabel">Detect beats</span></button>
+      <span class="metroctl hidden" id="metroCtl">
+        <label class="metroon"><input type="checkbox" id="metroOn" /> Click</label>
+        <span class="seg metroseg" title="Which beats click">
+          <button class="seg-btn" data-metrosub="4" title="Every beat">4/4</button>
+          <button class="seg-btn" data-metrosub="2" title="Every 2nd beat">2/4</button>
+          <button class="seg-btn" data-metrosub="1" title="Every 4th beat">1/4</button>
+        </span>
+        <span class="mono muted metrobpm" id="metroBpm"></span>
+      </span>
     </div>
 
     <div class="hint">
@@ -642,6 +657,12 @@ async function loadSong(song, { autoplay = false } = {}) {
   state.markerWinIdx = 0;
   wave.setState({ markers: state.markers });
 
+  // detected beats / metronome
+  state.metro = normalizeMetro(song.settings?.metronome);
+  metroResetClicks();
+  wave.setState({ beats: state.metro?.beats || [] });
+  syncMetroUI();
+
   // Loop is on by default: the first marker span (the playhead moves to marker 1),
   // or the whole song when there aren't enough markers.
   if (state.span > Math.max(1, state.markers.length - 1)) state.span = Math.max(1, state.markers.length - 1);
@@ -735,12 +756,165 @@ async function togglePlay() {
 function pausePlayback() {
   if (!state.engine) return;
   state.engine.pause();
+  metroResetClicks();
   state.playing = false;
   setPlayIcon(false);
   releaseWakeLock();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
 }
+// ---------- metronome (detected beats) ----------
+// Beats come from analysing the song (beats.worker.js), so they follow a
+// drifting tempo; they're saved per song (settings.metronome) and sync.
+function normalizeMetro(m) {
+  if (!m || !Array.isArray(m.beats) || m.beats.length < 2) return null;
+  return { beats: m.beats, bpm: m.bpm || 0, on: !!m.on, sub: [1, 2, 4].includes(m.sub) ? m.sub : 4 };
+}
+function syncMetroUI() {
+  const m = state.metro;
+  $('#metroCtl').classList.toggle('hidden', !m);
+  $('#beatDetectLabel').classList.toggle('hidden', !!m); // just the icon once there are beats
+  $('#beatDetect').title = m ? 'Detect the beats again' : 'Find the beats (the tempo can drift) and show them as ticks';
+  if (!m) return;
+  $('#metroOn').checked = m.on;
+  document.querySelectorAll('[data-metrosub]').forEach((b) => b.classList.toggle('on', Number(b.dataset.metrosub) === m.sub));
+  $('#metroBpm').textContent = m.bpm ? `~${m.bpm} BPM` : '';
+}
+let metroPersistTimer;
+function persistMetro() {
+  if (!state.song) return;
+  clearTimeout(metroPersistTimer);
+  metroPersistTimer = setTimeout(() => db.updateSongSettings(state.song.id, { metronome: state.metro }).then(schedulePush), 300);
+}
+
+let beatWorker = null;
+async function detectBeats() {
+  if (!state.buffer || !state.song) return;
+  const btn = $('#beatDetect'), label = $('#beatDetectLabel');
+  btn.disabled = true;
+  label.classList.remove('hidden');
+  label.textContent = 'Analyzing…';
+  const song = state.song;
+  try {
+    // mono, roughly halved sample rate (enough for the hi-hat band), handed to a worker
+    const buf = state.buffer, sr = buf.sampleRate, d = sr >= 32000 ? 2 : 1;
+    const n = Math.floor(buf.length / d), mono = new Float32Array(n), chs = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) chs.push(buf.getChannelData(c));
+    const scale = 1 / (chs.length * d);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (const ch of chs) for (let k = 0; k < d; k++) s += ch[i * d + k];
+      mono[i] = s * scale;
+    }
+    beatWorker ||= new Worker(new URL('./beats.worker.js', import.meta.url), { type: 'module' });
+    const res = await new Promise((resolve) => {
+      beatWorker.onmessage = (e) => resolve(e.data);
+      beatWorker.onerror = (e) => resolve({ ok: false, error: e.message || 'worker error' });
+      beatWorker.postMessage({ samples: mono, sampleRate: sr / d }, [mono.buffer]);
+    });
+    if (state.song !== song) return; // switched songs meanwhile
+    if (!res.ok) { toast(`Couldn't find the beat: ${res.error}`); return; }
+    state.metro = { beats: res.beats, bpm: res.bpm, on: state.metro?.on ?? false, sub: state.metro?.sub ?? 4 };
+    wave.setState({ beats: state.metro.beats });
+    metroResetClicks();
+    persistMetro();
+    toast(`Found ${res.beats.length} beats (~${res.bpm} BPM)`);
+  } catch (e) {
+    console.error(e);
+    toast('Beat detection failed');
+  } finally {
+    btn.disabled = false;
+    label.textContent = 'Detect beats';
+    syncMetroUI();
+  }
+}
+
+// Click scheduler: every 25 ms, schedule clicks for the beats coming up next
+// (further ahead when the app is hidden, where timers run late), on the audio
+// clock. Follows speed, seeks and loops (incl. clicks just after a loop wraps).
+const metroClicks = { scheduled: [], keys: new Set(), cycle: 0, anchorT: 0, anchorPos: 0, rate: 0, valid: false };
+function metroResetClicks() {
+  const now = state.audioCtx ? state.audioCtx.currentTime : 0;
+  for (const c of metroClicks.scheduled) if (c.when > now) { try { c.osc.stop(); } catch {} }
+  metroClicks.scheduled = [];
+  metroClicks.keys.clear();
+  metroClicks.valid = false;
+}
+function playClick(when) {
+  const ctx = state.audioCtx;
+  const osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.frequency.value = 1400; // every click alike (no "beat 1")
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(0.45, when + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.001, when + 0.045);
+  osc.connect(g);
+  g.connect(state.gain); // after the EQ, so the click isn't EQ'd
+  osc.start(when);
+  osc.stop(when + 0.06);
+  osc.onended = () => { try { osc.disconnect(); g.disconnect(); } catch {} };
+  return osc;
+}
+// Song position you're hearing right now: the engine's reported position runs
+// ahead by its processing delay (about half input-side, half output-side, the
+// output half scaled by speed), and it's refreshed every 30 ms (~15 ms old).
+function heardPosition() {
+  const lat = state.engine.latency || 0;
+  return state.engine.getPosition() - lat / 2 - (lat / 2) * state.speed + 0.015 * state.speed;
+}
+function metroTick() {
+  const m = state.metro, ctx = state.audioCtx;
+  if (!m || !m.on || !ctx || !state.engine || !state.playing) {
+    if (metroClicks.scheduled.length || metroClicks.valid) metroResetClicks();
+    return;
+  }
+  const now = ctx.currentTime, rate = state.speed;
+  const loop = state.loopOn && state.draftLoop ? state.draftLoop : null;
+  const raw = heardPosition();
+  let pos = metroClicks.anchorPos + (now - metroClicks.anchorT) * metroClicks.rate;
+  if (!metroClicks.valid || rate !== metroClicks.rate || Math.abs(raw - pos) > 0.08) {
+    const wrapped = metroClicks.valid && rate === metroClicks.rate && loop && raw < pos - 0.08 && raw < loop.start + 0.5;
+    if (wrapped) {
+      metroClicks.cycle++; // clicks just after the wrap were already scheduled as the next cycle
+      for (const k of metroClicks.keys) if (Number(k.split(':')[0]) < metroClicks.cycle) metroClicks.keys.delete(k);
+    } else {
+      metroResetClicks();
+      metroClicks.cycle = 0;
+    }
+    metroClicks.valid = true;
+    metroClicks.rate = rate;
+    pos = raw;
+  } else {
+    pos += 0.1 * (raw - pos); // follow the audio clock, gently corrected
+  }
+  metroClicks.anchorPos = pos;
+  metroClicks.anchorT = now;
+
+  const B = m.beats;
+  const want = (i) => i % (4 / m.sub) === 0; // 4/4 every beat, 2/4 every 2nd, 1/4 every 4th
+  const schedule = (from, to, whenAt, cycle) => {
+    let lo = 0, hi = B.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (B[mid] < from) lo = mid + 1; else hi = mid; }
+    for (let i = lo; i < B.length && B[i] < to; i++) {
+      const key = `${cycle}:${i}`;
+      if (metroClicks.keys.has(key) || !want(i)) continue;
+      const when = whenAt(B[i]);
+      if (when < now - 0.005) continue;
+      metroClicks.keys.add(key);
+      metroClicks.scheduled.push({ when, osc: playClick(Math.max(when, now)) });
+    }
+  };
+  const horizon = (document.visibilityState === 'hidden' ? 1.6 : 0.2) * rate; // song seconds ahead
+  const end = pos + horizon;
+  if (loop && pos < loop.end && end > loop.end) {
+    schedule(pos, loop.end, (b) => now + (b - pos) / rate, metroClicks.cycle);
+    const toWrap = (loop.end - pos) / rate;
+    schedule(loop.start, loop.start + (end - loop.end), (b) => now + toWrap + (b - loop.start) / rate, metroClicks.cycle + 1);
+  } else {
+    schedule(pos, end, (b) => now + (b - pos) / rate, metroClicks.cycle);
+  }
+  metroClicks.scheduled = metroClicks.scheduled.filter((c) => c.when > now - 0.2);
+}
+
 function stopPlayback() {
   if (state.playing) pausePlayback();
 }
@@ -1822,6 +1996,21 @@ function wireShell() {
   $('#pitchReset').onclick = () => setPitch(0);
 
   initEqUI();
+  $('#beatDetect').onclick = () => detectBeats();
+  $('#metroOn').addEventListener('change', (e) => {
+    if (!state.metro) return;
+    state.metro.on = e.target.checked;
+    metroResetClicks();
+    persistMetro();
+  });
+  document.querySelectorAll('[data-metrosub]').forEach((b) => (b.onclick = () => {
+    if (!state.metro) return;
+    state.metro.sub = Number(b.dataset.metrosub);
+    metroResetClicks();
+    syncMetroUI();
+    persistMetro();
+  }));
+  setInterval(metroTick, 25);
 
 
   window.addEventListener('keydown', (e) => {

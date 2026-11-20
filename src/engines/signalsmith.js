@@ -26,6 +26,11 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
   let loop = null; // { start, end }
   let playing = false;
   let position = 0; // cached source position for when paused
+  // The stretcher's own delay (seconds): its reported input position runs ahead
+  // of what you hear by about this much. Re-read whenever the settings change.
+  let latency = 0;
+  const readLatency = async () => { try { latency = (await stretch.latency()) || 0; } catch {} };
+  await readLatency();
 
   // Keep inputTime fresh for a smooth playhead.
   stretch.setUpdateInterval(0.03);
@@ -50,6 +55,9 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
     },
     get duration() {
       return duration;
+    },
+    get latency() {
+      return latency;
     },
 
     async load(audioBuffer) {
@@ -109,6 +117,7 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
     async reconfigure(config) {
       await stretch.configure(config || { blockMs: 0, preset: 'default' });
       apply();
+      await readLatency();
     },
 
     dispose() {
