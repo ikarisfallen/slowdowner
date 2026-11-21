@@ -558,10 +558,10 @@ function syncEngineToVisibility() {
   if (!state.engine || hidden === engineHidden) return;
   engineHidden = hidden;
   const engine = state.engine;
-  if (engine.tracks.length > 1 && engine.enterBlend && blendOn()) {
+  if (engine.hasBlend) {
     // Stem songs: while locked, play one full-quality engine on the stems summed
-    // together (built beforehand while paused, see engines/multi.js); the stem
-    // engines pause at the light setting. No blend ready = stems go light.
+    // together (see engines/multi.js); the stem engines pause at the light
+    // setting. If the blend isn't up to date, the stems go light until it is.
     const onScreen = engineConfigFor(false), light = engineConfigFor(true);
     engineSwap = engineSwap.then(async () => {
       if (state.engine !== engine) return;
@@ -571,7 +571,7 @@ function syncEngineToVisibility() {
           stillWanted: () => document.visibilityState === 'hidden' && state.engine === engine,
         });
         engineConfigApplied = light;
-        diagNote(ok ? 'stems -> blend (one full-quality engine)' : 'no blend ready: stems -> light setting');
+        diagNote(ok === 'ready' ? 'stems -> blend' : ok === 'built' ? 'blend built while locked: stems (light) -> blend' : 'no blend: stems -> light setting');
       } else {
         if (engine.inBlend) {
           await engine.exitBlend({ stemConfig: onScreen });
@@ -593,10 +593,9 @@ function syncEngineToVisibility() {
   diagNote(hidden ? 'engine -> background (locked setting)' : 'engine -> foreground (full quality)');
 }
 
-// Build the stem blend ahead of time, but only while paused: loading it into an
-// engine stalls whatever is playing. Runs after a stem song loads, on pause,
-// and after volume/mute changes made while paused (changes made while playing
-// leave it out of date until the next pause).
+// Keep the stem blend up to date: built right after a stem song loads and
+// rebuilt shortly after volume/mute changes (safe while playing, see
+// engines/multi.js), so locking the phone is a quick handover.
 let blendPrepTimer;
 function blendConfig() {
   const m = diagBlendMode();
@@ -606,12 +605,11 @@ function blendConfig() {
 function prepareBlendSoon(delay = 400) {
   clearTimeout(blendPrepTimer);
   const engine = state.engine;
-  if (!engine?.prepareBlend || engine.tracks.length < 2 || !blendOn()) return;
+  if (!engine?.hasBlend) return;
   blendPrepTimer = setTimeout(() => {
-    const allowed = () => !state.playing && state.engine === engine;
-    if (!allowed() || document.visibilityState !== 'visible' || engine.blendReady() || engine.inBlend) return;
-    engine.prepareBlend(blendConfig(), allowed)
-      .then((b) => b && diagNote('stem blend ready'))
+    if (state.engine !== engine || engine.blendReady() || engine.inBlend) return;
+    engine.prepareBlend()
+      .then((ok) => ok && state.engine === engine && diagNote('stem blend ready'))
       .catch((e) => console.error('blend build failed', e));
   }, delay);
 }
@@ -622,7 +620,11 @@ async function buildEngine() {
   // the shared master (state.gain).
   engineHidden = document.visibilityState === 'hidden';
   engineConfigApplied = engineConfigFor(engineHidden);
-  return await createMultiEngine(ctx, state.busIn, { config: engineConfigApplied });
+  const stems = diagSingleStem() ? 1 : state.tracks.length;
+  return await createMultiEngine(ctx, state.busIn, {
+    config: engineConfigApplied,
+    blend: stems > 1 && blendOn() ? { config: blendConfig() } : null,
+  });
 }
 
 // ---------- song loading ----------
@@ -829,7 +831,6 @@ function pausePlayback() {
   sessionAudioPause();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
-  prepareBlendSoon(); // volumes/mutes may have changed while playing
 }
 // ---------- metronome (detected beats) ----------
 // Beats come from analysing the song (beats.worker.js), so they follow a
@@ -1060,7 +1061,7 @@ function renderTrackMix() {
       state.engine?.setTrackVolume(i, v);
       valEl.textContent = `${Math.round(v * 100)}%`;
       persistTrackMix();
-      prepareBlendSoon(800); // the blend bakes in volumes/mutes (skipped while playing)
+      prepareBlendSoon(800); // the blend bakes in volumes/mutes
     });
     group.querySelector('.mutebtn').onclick = (e) => {
       t.muted = !t.muted;

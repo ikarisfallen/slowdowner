@@ -66,14 +66,20 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
       return latency;
     },
 
-    async load(audioBuffer) {
-      duration = audioBuffer.duration;
-      stretch.dropBuffers();
-      const channels = [];
-      for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
-        channels.push(audioBuffer.getChannelData(c));
-      }
-      await stretch.addBuffers(channels);
+    // source: an AudioBuffer, or an array of Float32Arrays (one per channel,
+    // at the context's sample rate) that are handed over (emptied).
+    // The audio is handed to the audio thread *without copying*: a copied
+    // message is unpacked on the audio rendering thread, which for a whole song
+    // blocks playback for ~50-100 ms on a laptop (more on a phone). Handing it
+    // over costs ~2 ms, so this is safe even while other engines are playing.
+    // (One piece only: the library mis-reads blocks that span two added buffers.)
+    async load(source) {
+      const channels = source instanceof AudioBuffer
+        ? Array.from({ length: source.numberOfChannels }, (_, c) => source.getChannelData(c).slice())
+        : source;
+      await stretch.dropBuffers();
+      await stretch.addBuffers(channels, channels.map((ch) => ch.buffer));
+      duration = channels[0].length / ctx.sampleRate;
       position = 0;
       apply({ input: 0, active: false });
     },

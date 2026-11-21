@@ -8,24 +8,29 @@
 //
 // Blend mode (used while the phone is locked, see main.js): a locked phone gives
 // the audio a small slice of the CPU, and two stem engines cost about twice one.
-// So the stems are summed (at their current volumes/mutes) into one buffer that
-// a single full-quality "blend" engine plays; the stem engines pause, which costs
-// very little. On return, playback hands back to the stems.
+// So the stems are summed (at their current volumes/mutes) into one "blend" that
+// a single engine plays; the stem engines pause, which costs very little. On
+// return, playback hands back to the stems.
 //
-// Loading the blend into a new engine copies a whole song's worth of audio on
-// the audio rendering thread, which stalls playback. So it's only ever built
-// while paused (see `allowed` below); if it isn't ready when the phone locks,
-// the stems just drop to a light setting instead.
+// The blend engine is created with the stems (starting an engine during
+// playback would hiccup), and the blend is summed and handed to it in
+// one go without copying on the audio thread (see signalsmith.js load()), so it
+// can be (re)built at any time, even while playing.
 import { createSignalsmithEngine } from './signalsmith.js';
 
 const HANDOVER = 0.03; // seconds ahead to schedule a handover on the audio clock
 
+// engineOpts: { config } for the stem engines; blend: { config } (or falsy for
+// no blend) for the blend engine.
 export async function createMultiEngine(ctx, destination, engineOpts = {}) {
+  const { blend: blendOpts, ...stemOpts } = engineOpts;
   // tracks: { engine, gain, name, volume, muted, buffer }
   const tracks = [];
-  let blend = null; // { engine, gain, key }
-  let blendBuild = null; // { key, promise } while summing/loading
+  let blend = null; // { engine, gain } (created at load for 2+ stems)
+  let blendLoaded = null; // blendKey() of what the blend engine holds, when complete
+  let building = null; // promise of the running build
   let blendMode = false;
+  let disposed = false;
   const cur = { rate: 1, semitones: 0, loopStart: null, loopEnd: null };
 
   const first = () => tracks[0]?.engine || null;
@@ -34,6 +39,7 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
   const allEngines = () => [...tracks.map((t) => t.engine), ...(blend ? [blend.engine] : [])];
   // what the blend has to match: each stem's effective level
   const blendKey = () => tracks.map((t) => (t.muted ? 0 : t.volume).toFixed(3)).join(',');
+  const blendReady = () => !!blend && blendLoaded === blendKey();
 
   // Song position a playing engine will be *heard* at when a handover scheduled
   // HANDOVER from now lands. getPosition() runs ahead of what's heard by the
@@ -57,67 +63,60 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
     });
   }
 
-  // Sum the stems into one buffer. Yields between chunks while the app is on
-  // screen so it doesn't stall the UI (not when hidden: timers are throttled there).
+  // Let other work run between steps. A message, not a timer: timers are held
+  // back (up to a minute) on a hidden page.
+  const yieldNow = () => new Promise((resolve) => {
+    const mc = new MessageChannel();
+    mc.port1.onmessage = () => { mc.port1.close(); resolve(); };
+    mc.port2.postMessage(0);
+  });
+
+  // The stems summed at their current levels, as fresh channel arrays (handed
+  // over to the engine). Summed in steps so the page stays responsive; returns
+  // null if the levels change again meanwhile.
   async function sumStems() {
+    const key = blendKey();
+    const levels = tracks.map((t) => (t.muted ? 0 : t.volume));
     const len = Math.max(...tracks.map((t) => t.buffer.length));
-    const channels = Math.max(...tracks.map((t) => t.buffer.numberOfChannels));
-    const out = ctx.createBuffer(channels, len, tracks[0].buffer.sampleRate);
-    const CHUNK = 1 << 18;
-    for (let c = 0; c < channels; c++) {
-      const dst = out.getChannelData(c);
-      for (const t of tracks) {
-        const w = t.muted ? 0 : t.volume;
+    const out = Array.from({ length: Math.max(...tracks.map((t) => t.buffer.numberOfChannels)) }, () => new Float32Array(len));
+    const STEP = 1 << 19; // ~11 s at 48 kHz
+    for (let c = 0; c < out.length; c++) {
+      const dst = out[c];
+      for (let k = 0; k < tracks.length; k++) {
+        const w = levels[k], buf = tracks[k].buffer;
         if (!w) continue;
-        const src = t.buffer.getChannelData(Math.min(c, t.buffer.numberOfChannels - 1));
-        for (let i0 = 0; i0 < src.length; i0 += CHUNK) {
-          const end = Math.min(src.length, i0 + CHUNK);
+        const src = buf.getChannelData(Math.min(c, buf.numberOfChannels - 1));
+        for (let i0 = 0; i0 < src.length; i0 += STEP) {
+          const end = Math.min(src.length, i0 + STEP);
           for (let i = i0; i < end; i++) dst[i] += src[i] * w;
-          if (document.visibilityState === 'visible') await new Promise((r) => setTimeout(r, 0));
+          await yieldNow();
+          if (blendKey() !== key || disposed) return null;
         }
       }
     }
-    return out;
+    return { key, channels: out };
   }
 
-  function disposeBlend(b) {
-    if (!b) return;
-    try { b.engine.dispose(); } catch {}
-    try { b.gain.disconnect(); } catch {}
-  }
-
-  // allowed(): checked before each heavy step; returns false once playback has
-  // started, which abandons the build (a stall is only harmless while paused).
-  async function buildBlend(config, allowed) {
-    const key = blendKey();
-    if (blend && blend.key === key) return blend;
-    if (blendBuild && blendBuild.key === key) return blendBuild.promise;
-    const promise = (async () => {
-      const buffer = await sumStems();
-      if (!allowed()) return null;
-      const engine = await createSignalsmithEngine(ctx, { config });
-      if (!allowed()) { try { engine.dispose(); } catch {} return null; }
-      const gain = ctx.createGain();
-      engine.outputNode.connect(gain);
-      gain.connect(destination);
-      await engine.load(buffer);
-      engine.setSpeed(cur.rate);
-      engine.setPitch(cur.semitones);
-      engine.setLoop(cur.loopStart, cur.loopEnd);
-      engine.seek(first().getPosition());
-      return { engine, gain, key };
+  // Bring the blend up to date with the current levels (never while it plays).
+  // Resolves true when it's ready.
+  function buildBlend() {
+    if (!blend || blendMode) return Promise.resolve(blendReady());
+    if (building) return building;
+    building = (async () => {
+      try {
+        while (!disposed && !blendMode && !blendReady()) {
+          const sum = await sumStems();
+          if (!sum || disposed || blendMode) continue; // levels changed: start over
+          blendLoaded = null;
+          await blend.engine.load(sum.channels);
+          if (!disposed) blendLoaded = sum.key;
+        }
+        return blendReady();
+      } finally {
+        building = null;
+      }
     })();
-    blendBuild = { key, promise };
-    try {
-      const b = await promise;
-      if (!b) return null; // abandoned (playback started)
-      if (blendBuild?.promise !== promise || blendMode) { disposeBlend(b); return blend; } // superseded
-      disposeBlend(blend);
-      blend = b;
-      return b;
-    } finally {
-      if (blendBuild?.promise === promise) blendBuild = null;
-    }
+    return building;
   }
 
   return {
@@ -143,7 +142,7 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
     // items: [{ buffer, name, volume }]
     async load(items) {
       for (const it of items) {
-        const engine = await createSignalsmithEngine(ctx, engineOpts);
+        const engine = await createSignalsmithEngine(ctx, stemOpts);
         const gain = ctx.createGain();
         const vol = it.volume == null ? 1 : it.volume;
         gain.gain.value = vol;
@@ -151,6 +150,20 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
         gain.connect(destination);
         await engine.load(it.buffer);
         tracks.push({ engine, gain, name: it.name, volume: vol, muted: false, buffer: it.buffer });
+      }
+      if (blendOpts && tracks.length > 1) {
+        try {
+          const engine = await createSignalsmithEngine(ctx, { config: blendOpts.config });
+          const gain = ctx.createGain();
+          engine.outputNode.connect(gain);
+          gain.connect(destination);
+          engine.setSpeed(cur.rate);
+          engine.setPitch(cur.semitones);
+          engine.setLoop(cur.loopStart, cur.loopEnd);
+          blend = { engine, gain };
+        } catch (e) {
+          console.error('blend engine failed', e);
+        }
       }
     },
 
@@ -203,27 +216,27 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
     },
 
     // --- blend mode ---
-    blendReady() {
-      return !!blend && blend.key === blendKey();
+    get hasBlend() {
+      return !!blend;
     },
-    // Build (or rebuild after a volume/mute change) the blend ahead of time;
-    // `allowed()` must stay true (i.e. paused) or the build is abandoned.
-    prepareBlend(config, allowed = () => true) {
-      if (tracks.length < 2 || blendMode) return Promise.resolve(null);
-      return buildBlend(config, allowed);
+    blendReady,
+    // (Re)build the blend for the current volumes/mutes; safe while playing.
+    prepareBlend() {
+      return buildBlend();
     },
-    // Hand playback to the (already built) blend. If it isn't ready, never build
-    // it here (that would stall playback): drop the stems to `stemConfig`
-    // instead and report false. Once handed over, the paused stems go to
-    // `stemConfig` too.
+    // Hand playback to the blend. If it isn't up to date yet, the stems drop to
+    // `stemConfig` first (keeps up meanwhile), then it's built and handed over
+    // if `stillWanted()`. Once handed over the paused stems go to `stemConfig`.
+    // Returns 'ready' / 'built' (handed over) or false.
     async enterBlend({ stemConfig, stillWanted = () => true }) {
-      if (tracks.length < 2 || blendMode) return false;
-      if (!this.blendReady()) {
+      if (!blend || blendMode) return false;
+      const wasReady = blendReady();
+      if (!wasReady) {
         await this.reconfigure(stemConfig);
-        return false;
+        if (!(await buildBlend())) return false;
       }
+      if (blendMode || !stillWanted() || !blendReady()) return false;
       const b = blend;
-      if (!stillWanted()) return false;
       const wasPlaying = first().playing;
       const when = ctx.currentTime + HANDOVER;
       b.engine.setSpeed(cur.rate);
@@ -235,10 +248,11 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
         for (const t of tracks) t.engine.pause(when);
       }
       blendMode = true;
-      // stems are paused now (after `when`): make them cheap while they wait
-      await audioClockDelay(HANDOVER + 0.02);
-      await this.reconfigure(stemConfig);
-      return true;
+      if (wasReady) { // stems are paused now (after `when`): make them cheap while they wait
+        await audioClockDelay(HANDOVER + 0.02);
+        await this.reconfigure(stemConfig);
+      }
+      return wasReady ? 'ready' : 'built';
     },
     // Hand playback back to the stems (set to `stemConfig` first, while paused).
     async exitBlend({ stemConfig }) {
@@ -257,14 +271,17 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
     },
 
     dispose() {
+      disposed = true;
       for (const t of tracks) {
         try { t.engine.dispose(); } catch {}
         try { t.gain.disconnect(); } catch {}
       }
       tracks.length = 0;
-      disposeBlend(blend);
+      if (blend) {
+        try { blend.engine.dispose(); } catch {}
+        try { blend.gain.disconnect(); } catch {}
+      }
       blend = null;
-      blendBuild = null;
     },
   };
 }
