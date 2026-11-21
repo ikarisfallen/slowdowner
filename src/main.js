@@ -1,7 +1,7 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagBlendWhileLocked, diagNote } from './diag.js';
-import { DEFAULT_CONFIG, BACKGROUND_CONFIG } from './engines/signalsmith.js';
+import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagBlendWhileLocked, diagBlendMode, diagNote } from './diag.js';
+import { DEFAULT_CONFIG, BACKGROUND_CONFIG, BLEND_CONFIG } from './engines/signalsmith.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
 import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
 import * as db from './db.js';
@@ -598,6 +598,11 @@ function syncEngineToVisibility() {
 // and after volume/mute changes made while paused (changes made while playing
 // leave it out of date until the next pause).
 let blendPrepTimer;
+function blendConfig() {
+  const m = diagBlendMode();
+  if (!m) return BLEND_CONFIG;
+  return m.screen ? engineConfigFor(false) : m.config;
+}
 function prepareBlendSoon(delay = 400) {
   clearTimeout(blendPrepTimer);
   const engine = state.engine;
@@ -605,7 +610,7 @@ function prepareBlendSoon(delay = 400) {
   blendPrepTimer = setTimeout(() => {
     const allowed = () => !state.playing && state.engine === engine;
     if (!allowed() || document.visibilityState !== 'visible' || engine.blendReady() || engine.inBlend) return;
-    engine.prepareBlend(engineConfigFor(false), allowed)
+    engine.prepareBlend(blendConfig(), allowed)
       .then((b) => b && diagNote('stem blend ready'))
       .catch((e) => console.error('blend build failed', e));
   }, delay);

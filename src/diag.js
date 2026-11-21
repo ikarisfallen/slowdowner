@@ -23,8 +23,15 @@ export const BG_MODES = {
   lighter: { label: 'Lighter (100/40)', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
   same: { label: 'Same as on screen', config: null },
 };
+// Engine for the stem blend (the single engine that plays while locked).
+// screen: same setting as the on-screen engines.
+export const BLEND_MODES = {
+  lighter: { label: 'Lighter 100/40 (current)', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
+  mid85: { label: 'In-between B (85/45)', config: { blockMs: 85, intervalMs: 45, splitComputation: true } },
+  screen: { label: 'Same as on screen', screen: true },
+};
 const LATENCIES = [['balanced', 'Medium (current)'], ['interactive', 'Small'], ['playback', 'Large']];
-const DEFAULTS = { enabled: false, engine: 'original', latency: 'balanced', singleStem: false, bgEngine: 'lightest', blend: true };
+const DEFAULTS = { enabled: false, engine: 'original', latency: 'balanced', singleStem: false, bgEngine: 'lightest', blend: true, blendEngine: 'lighter' };
 const MAX_SAMPLES = 900; // 15 min of playing at 1/s
 const MAX_EVENTS = 200;
 
@@ -37,6 +44,7 @@ const cfg = { ...DEFAULTS, ...readJSON('diag', {}) };
 if (cfg.bgLight === false && !readJSON('diag', {}).bgEngine) cfg.bgEngine = 'same'; // older checkbox setting
 delete cfg.bgLight;
 if (!BG_MODES[cfg.bgEngine]) cfg.bgEngine = 'lightest';
+if (!BLEND_MODES[cfg.blendEngine]) cfg.blendEngine = 'lighter';
 if (/[?&]debug\b/.test(location.search)) cfg.enabled = true;
 const saved = readJSON('diagLog', {});
 const log = { samples: saved.samples || [], events: saved.events || [], bench: saved.bench || '' };
@@ -51,6 +59,8 @@ export const diagSingleStem = () => cfg.enabled && cfg.singleStem;
 export const diagBackgroundLight = () => !cfg.enabled || cfg.bgEngine !== 'same';
 // undefined = use the app's own background setting
 export const diagBlendWhileLocked = () => !cfg.enabled || cfg.blend !== false;
+// undefined = the app's own blend setting
+export const diagBlendMode = () => (cfg.enabled ? BLEND_MODES[cfg.blendEngine] : undefined);
 export const diagBackgroundConfig = () => (cfg.enabled && cfg.bgEngine !== 'same' ? BG_MODES[cfg.bgEngine].config : undefined);
 export const diagNote = (name) => { if (cfg.enabled) event(name); };
 
@@ -180,7 +190,7 @@ function logText() {
   L.push(`App v${build} · ${matchMedia('(display-mode: standalone)').matches ? 'installed app' : 'browser tab'} · ${navigator.userAgent}`);
   L.push(`Cores ${navigator.hardwareConcurrency ?? '?'} · memory ${navigator.deviceMemory ?? '?'} GB`);
   if (ctx) L.push(`Audio: ${ctx.sampleRate} Hz · baseLatency ${ctx.baseLatency?.toFixed?.(3)} s · outputLatency ${ctx.outputLatency?.toFixed?.(3) ?? '?'} s · state ${ctx.state}`);
-  L.push(`Test switches: engine=${cfg.engine} whileLocked=${cfg.bgEngine} blend=${cfg.blend !== false} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
+  L.push(`Test switches: engine=${cfg.engine} whileLocked=${cfg.bgEngine} blend=${cfg.blend !== false}/${cfg.blendEngine} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
   L.push(`Song: "${info.song ?? '-'}" · ${info.stems} stem(s) · speed ${Math.round(info.speed * 100)}% · pitch ${info.pitch} · EQ ${info.eq ? 'on' : 'off'}`);
   L.push('', 'VERDICT', ...verdict.map((x) => `- ${x}`), '');
   L.push('phase         intervals  secs   clock(avg/min/max)   speaker  song  off>5%');
@@ -230,6 +240,7 @@ function buildPanel() {
     <div class="diagrow"><span>Audio buffers</span><select id="diagLatency" class="eqselect">${LATENCIES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
     <label class="diagrow"><span>One stem only</span><input type="checkbox" id="diagSingle" /></label>
     <label class="diagrow"><span>Blend stems while locked</span><input type="checkbox" id="diagBlend" /></label>
+    <div class="diagrow"><span>Blend engine</span><select id="diagBlendEngine" class="eqselect">${Object.entries(BLEND_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagrow"><span>Engine while locked</span><select id="diagBgEngine" class="eqselect">${Object.entries(BG_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagbtns"><button class="btn" id="diagApply">Apply (restarts the app)</button></div>
     <div class="diagbtns">
@@ -246,16 +257,18 @@ function buildPanel() {
   $('#diagLatency').value = cfg.latency;
   $('#diagSingle').checked = cfg.singleStem;
   $('#diagBlend').checked = cfg.blend !== false;
+  $('#diagBlendEngine').value = cfg.blendEngine;
   $('#diagBgEngine').value = cfg.bgEngine;
   $('#diagApply').onclick = () => {
     cfg.engine = $('#diagEngine').value;
     cfg.latency = $('#diagLatency').value;
     cfg.singleStem = $('#diagSingle').checked;
     cfg.blend = $('#diagBlend').checked;
+    cfg.blendEngine = $('#diagBlendEngine').value;
     cfg.bgEngine = $('#diagBgEngine').value;
     writeJSON('diag', cfg);
     log.samples = []; // fresh measurements for the new setup
-    event(`switches: engine=${cfg.engine} whileLocked=${cfg.bgEngine} blend=${cfg.blend !== false} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
+    event(`switches: engine=${cfg.engine} whileLocked=${cfg.bgEngine} blend=${cfg.blend !== false}/${cfg.blendEngine} buffers=${cfg.latency} singleStem=${cfg.singleStem}`);
     persist();
     location.reload(); // new audio context + engines; the last song reopens
   };
@@ -295,7 +308,7 @@ function setEnabled(on) {
   }
   render();
   deps.toast(on ? 'Diagnostics on (bottom of the page)' : 'Diagnostics off');
-  if (!on && (cfg.engine !== 'original' || cfg.latency !== 'balanced' || cfg.singleStem || cfg.bgEngine !== 'lightest' || cfg.blend === false)) {
+  if (!on && (cfg.engine !== 'original' || cfg.latency !== 'balanced' || cfg.singleStem || cfg.bgEngine !== 'lightest' || cfg.blend === false || cfg.blendEngine !== 'lighter')) {
     deps.toast('Diagnostics off — restart the app to drop the test switches');
   }
 }

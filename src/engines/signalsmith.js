@@ -12,6 +12,9 @@ export const DEFAULT_CONFIG = null;
 // audio roughly 1/20th of its on-screen CPU (measured on a Pixel 8). This much
 // cheaper setting (~2x less work) keeps up there, so we switch to it while hidden.
 export const BACKGROUND_CONFIG = { blockMs: 70, intervalMs: 50, splitComputation: true };
+// The stem blend (one engine, only played while locked): one full-quality engine
+// barely fits the locked phone's CPU (light crackle), this has ~2x the headroom.
+export const BLEND_CONFIG = { blockMs: 100, intervalMs: 40, splitComputation: true };
 
 // opts.config: undefined = DEFAULT_CONFIG, null = the library's own preset,
 // or a configure() object (the background switch and diagnostics use this).

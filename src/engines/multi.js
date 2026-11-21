@@ -35,6 +35,12 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
   // what the blend has to match: each stem's effective level
   const blendKey = () => tracks.map((t) => (t.muted ? 0 : t.volume).toFixed(3)).join(',');
 
+  // Song position a playing engine will be *heard* at when a handover scheduled
+  // HANDOVER from now lands. getPosition() runs ahead of what's heard by the
+  // stretch delay (latency/2 + latency/2 * rate); a newly started engine is heard
+  // from its seek position, so it's seeked here for a seamless switch.
+  const heardAt = (e) => e.getPosition() + HANDOVER * cur.rate - (e.latency / 2) * (1 + cur.rate);
+
   // Wait on the audio clock (a source's 'ended' fires on time even when timers
   // are held back on a locked phone).
   function audioClockDelay(secs) {
@@ -223,7 +229,7 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
       b.engine.setSpeed(cur.rate);
       b.engine.setPitch(cur.semitones);
       b.engine.setLoop(cur.loopStart, cur.loopEnd);
-      b.engine.seek(first().getPosition() + (wasPlaying ? HANDOVER * cur.rate : 0));
+      b.engine.seek(wasPlaying ? heardAt(first()) : first().getPosition());
       if (wasPlaying) {
         b.engine.play(when);
         for (const t of tracks) t.engine.pause(when);
@@ -240,7 +246,7 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
       await this.reconfigure(stemConfig);
       const wasPlaying = blend.engine.playing;
       const when = ctx.currentTime + HANDOVER;
-      const pos = blend.engine.getPosition() + (wasPlaying ? HANDOVER * cur.rate : 0);
+      const pos = wasPlaying ? heardAt(blend.engine) : blend.engine.getPosition();
       for (const t of tracks) t.engine.seek(pos);
       if (wasPlaying) {
         for (const t of tracks) t.engine.play(when);
