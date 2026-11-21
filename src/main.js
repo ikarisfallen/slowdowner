@@ -1,6 +1,6 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
-import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagNote } from './diag.js';
+import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagBlendWhileLocked, diagNote } from './diag.js';
 import { DEFAULT_CONFIG, BACKGROUND_CONFIG } from './engines/signalsmith.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
 import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
@@ -483,6 +483,7 @@ async function recoverAudio(reason) {
       state.engine = await buildEngine();
       await state.engine.load(state.tracks.slice(0, diagSingleStem() ? 1 : undefined).map((t) => ({ buffer: t.buffer, name: t.name, volume: t.volume })));
       state.tracks.forEach((t, i) => { if (t.muted) state.engine.setTrackMuted(i, true); });
+      prepareBlendSoon(300);
       applyEngineParams();
       state.engine.seek(pos);
       updatePlayhead(pos);
@@ -550,15 +551,64 @@ function engineConfigFor(hidden) {
   return onScreen;
 }
 let engineConfigApplied = null;
+let engineSwap = Promise.resolve(); // serializes lock/unlock switches
+const blendOn = () => diagBackgroundLight() && diagBlendWhileLocked();
 function syncEngineToVisibility() {
   const hidden = document.visibilityState === 'hidden';
   if (!state.engine || hidden === engineHidden) return;
   engineHidden = hidden;
+  const engine = state.engine;
+  if (engine.tracks.length > 1 && engine.enterBlend && blendOn()) {
+    // Stem songs: while locked, play one full-quality engine on the stems summed
+    // together (built beforehand while paused, see engines/multi.js); the stem
+    // engines pause at the light setting. No blend ready = stems go light.
+    const onScreen = engineConfigFor(false), light = engineConfigFor(true);
+    engineSwap = engineSwap.then(async () => {
+      if (state.engine !== engine) return;
+      if (hidden) {
+        const ok = await engine.enterBlend({
+          stemConfig: light,
+          stillWanted: () => document.visibilityState === 'hidden' && state.engine === engine,
+        });
+        engineConfigApplied = light;
+        diagNote(ok ? 'stems -> blend (one full-quality engine)' : 'no blend ready: stems -> light setting');
+      } else {
+        if (engine.inBlend) {
+          await engine.exitBlend({ stemConfig: onScreen });
+          diagNote('blend -> stems');
+        } else if (JSON.stringify(engineConfigApplied) !== JSON.stringify(onScreen)) {
+          await engine.reconfigure(onScreen);
+          diagNote('engine -> foreground (full quality)');
+        }
+        engineConfigApplied = onScreen;
+        prepareBlendSoon(300);
+      }
+    }).catch((e) => console.error('blend switch failed', e));
+    return;
+  }
   const config = engineConfigFor(hidden);
   if (JSON.stringify(config) === JSON.stringify(engineConfigApplied)) return; // nothing to change (no blip)
   engineConfigApplied = config;
   state.engine.reconfigure(config).catch((e) => console.error('reconfigure failed', e));
   diagNote(hidden ? 'engine -> background (locked setting)' : 'engine -> foreground (full quality)');
+}
+
+// Build the stem blend ahead of time, but only while paused: loading it into an
+// engine stalls whatever is playing. Runs after a stem song loads, on pause,
+// and after volume/mute changes made while paused (changes made while playing
+// leave it out of date until the next pause).
+let blendPrepTimer;
+function prepareBlendSoon(delay = 400) {
+  clearTimeout(blendPrepTimer);
+  const engine = state.engine;
+  if (!engine?.prepareBlend || engine.tracks.length < 2 || !blendOn()) return;
+  blendPrepTimer = setTimeout(() => {
+    const allowed = () => !state.playing && state.engine === engine;
+    if (!allowed() || document.visibilityState !== 'visible' || engine.blendReady() || engine.inBlend) return;
+    engine.prepareBlend(engineConfigFor(false), allowed)
+      .then((b) => b && diagNote('stem blend ready'))
+      .catch((e) => console.error('blend build failed', e));
+  }, delay);
 }
 
 async function buildEngine() {
@@ -654,6 +704,7 @@ async function loadSong(song, { autoplay = false } = {}) {
     return; // don't rethrow — avoid an uncaught rejection
   }
   renderTrackMix();
+  prepareBlendSoon(300);
 
   // loops
   state.draftLoop = null;
@@ -773,6 +824,7 @@ function pausePlayback() {
   sessionAudioPause();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
+  prepareBlendSoon(); // volumes/mutes may have changed while playing
 }
 // ---------- metronome (detected beats) ----------
 // Beats come from analysing the song (beats.worker.js), so they follow a
@@ -1003,6 +1055,7 @@ function renderTrackMix() {
       state.engine?.setTrackVolume(i, v);
       valEl.textContent = `${Math.round(v * 100)}%`;
       persistTrackMix();
+      prepareBlendSoon(800); // the blend bakes in volumes/mutes (skipped while playing)
     });
     group.querySelector('.mutebtn').onclick = (e) => {
       t.muted = !t.muted;
@@ -1011,6 +1064,7 @@ function renderTrackMix() {
       e.currentTarget.textContent = t.muted ? '🔇' : '🔊';
       row.classList.toggle('muted-row', t.muted);
       persistTrackMix();
+      prepareBlendSoon(800);
     };
 
 
