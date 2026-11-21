@@ -20,8 +20,9 @@ import { createSignalsmithEngine } from './signalsmith.js';
 
 const HANDOVER = 0.03; // seconds ahead to schedule a handover on the audio clock
 
-// engineOpts: { config } for the stem engines; blend: { config } (or falsy for
-// no blend) for the blend engine.
+// engineOpts: { config } for the stem engines; blend (falsy for no blend):
+// { config, slowConfig, slowBelow } for the blend engine; slowConfig is used
+// when the speed is below slowBelow.
 export async function createMultiEngine(ctx, destination, engineOpts = {}) {
   const { blend: blendOpts, ...stemOpts } = engineOpts;
   // tracks: { engine, gain, name, volume, muted, buffer }
@@ -30,6 +31,7 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
   let blendLoaded = null; // blendKey() of what the blend engine holds, when complete
   let building = null; // promise of the running build
   let blendMode = false;
+  let blendSetting = null; // JSON of the blend engine's current config
   let disposed = false;
   const cur = { rate: 1, semitones: 0, loopStart: null, loopEnd: null };
 
@@ -154,6 +156,7 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
       if (blendOpts && tracks.length > 1) {
         try {
           const engine = await createSignalsmithEngine(ctx, { config: blendOpts.config });
+          blendSetting = JSON.stringify(blendOpts.config ?? null);
           const gain = ctx.createGain();
           engine.outputNode.connect(gain);
           gain.connect(destination);
@@ -219,6 +222,9 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
     get hasBlend() {
       return !!blend;
     },
+    get blendSetting() {
+      return blendSetting;
+    },
     blendReady,
     // (Re)build the blend for the current volumes/mutes; safe while playing.
     prepareBlend() {
@@ -237,6 +243,14 @@ export async function createMultiEngine(ctx, destination, engineOpts = {}) {
       }
       if (blendMode || !stillWanted() || !blendReady()) return false;
       const b = blend;
+      // pick the blend's setting for the current speed (it's paused: no blip)
+      const slow = blendOpts.slowConfig !== undefined && cur.rate < (blendOpts.slowBelow ?? 0);
+      const want = slow ? blendOpts.slowConfig : blendOpts.config;
+      if (JSON.stringify(want ?? null) !== blendSetting) {
+        await b.engine.reconfigure(want);
+        blendSetting = JSON.stringify(want ?? null);
+        if (blendMode || !stillWanted() || !blendReady()) return false;
+      }
       const wasPlaying = first().playing;
       const when = ctx.currentTime + HANDOVER;
       b.engine.setSpeed(cur.rate);

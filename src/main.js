@@ -1,7 +1,7 @@
 import './styles.css';
 import { createMultiEngine } from './engines/multi.js';
 import { initDiag, diagEngineConfig, diagLatency, diagSingleStem, diagWatchContext, diagBackgroundLight, diagBackgroundConfig, diagBlendWhileLocked, diagBlendMode, diagNote } from './diag.js';
-import { DEFAULT_CONFIG, BACKGROUND_CONFIG, BLEND_CONFIG } from './engines/signalsmith.js';
+import { DEFAULT_CONFIG, BACKGROUND_CONFIG, BLEND_CONFIG, BLEND_SLOW_BELOW } from './engines/signalsmith.js';
 import { Waveform, computePeaks, markerColor } from './waveform.js';
 import { createEqChain, EqGraph, normalizeEq, BUILTIN_PRESETS, EQ_TYPES, BAND_COLORS, hasGain, hasQ, cloneBands, defaultBands, F_MIN, F_MAX, Q_MIN, Q_MAX } from './eq.js';
 import * as db from './db.js';
@@ -571,7 +571,8 @@ function syncEngineToVisibility() {
           stillWanted: () => document.visibilityState === 'hidden' && state.engine === engine,
         });
         engineConfigApplied = light;
-        diagNote(ok === 'ready' ? 'stems -> blend' : ok === 'built' ? 'blend built while locked: stems (light) -> blend' : 'no blend: stems -> light setting');
+        const setting = ` (${state.speed < BLEND_SLOW_BELOW ? 'slow-speed setting' : 'blend setting'} ${engine.blendSetting})`;
+        diagNote(ok === 'ready' ? `stems -> blend${setting}` : ok === 'built' ? `blend built while locked: stems (light) -> blend${setting}` : 'no blend: stems -> light setting');
       } else {
         if (engine.inBlend) {
           await engine.exitBlend({ stemConfig: onScreen });
@@ -623,7 +624,8 @@ async function buildEngine() {
   const stems = diagSingleStem() ? 1 : state.tracks.length;
   return await createMultiEngine(ctx, state.busIn, {
     config: engineConfigApplied,
-    blend: stems > 1 && blendOn() ? { config: blendConfig() } : null,
+    // slowed down, the blend uses the on-screen setting (see BLEND_SLOW_BELOW)
+    blend: stems > 1 && blendOn() ? { config: blendConfig(), slowConfig: engineConfigFor(false), slowBelow: BLEND_SLOW_BELOW } : null,
   });
 }
 

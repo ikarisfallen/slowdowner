@@ -240,7 +240,7 @@ function buildPanel() {
     <div class="diagrow"><span>Audio buffers</span><select id="diagLatency" class="eqselect">${LATENCIES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
     <label class="diagrow"><span>One stem only</span><input type="checkbox" id="diagSingle" /></label>
     <label class="diagrow"><span>Blend stems while locked</span><input type="checkbox" id="diagBlend" /></label>
-    <div class="diagrow"><span>Blend engine</span><select id="diagBlendEngine" class="eqselect">${Object.entries(BLEND_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
+    <div class="diagrow"><span>Blend engine (85%+)</span><select id="diagBlendEngine" class="eqselect">${Object.entries(BLEND_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagrow"><span>Engine while locked</span><select id="diagBgEngine" class="eqselect">${Object.entries(BG_MODES).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></div>
     <div class="diagbtns"><button class="btn" id="diagApply">Apply (restarts the app)</button></div>
     <div class="diagbtns">
