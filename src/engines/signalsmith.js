@@ -77,9 +77,11 @@ export async function createSignalsmithEngine(ctx, opts = {}) {
       const channels = source instanceof AudioBuffer
         ? Array.from({ length: source.numberOfChannels }, (_, c) => source.getChannelData(c).slice())
         : source;
+      // (read the length first: handing the arrays over empties them)
+      const length = channels[0].length;
       await stretch.dropBuffers();
       await stretch.addBuffers(channels, channels.map((ch) => ch.buffer));
-      duration = channels[0].length / ctx.sampleRate;
+      duration = length / ctx.sampleRate;
       position = 0;
       apply({ input: 0, active: false });
     },
