@@ -26,12 +26,12 @@ export const BG_MODES = {
 // Engine for the stem blend (the single engine that plays while locked).
 // screen: same setting as the on-screen engines.
 export const BLEND_MODES = {
-  lighter: { label: 'Lighter 100/40', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
+  lighter: { label: 'Lighter 100/40 (current)', config: { blockMs: 100, intervalMs: 40, splitComputation: true } },
   mid85: { label: 'In-between B (85/45)', config: { blockMs: 85, intervalMs: 45, splitComputation: true } },
-  screen: { label: 'Same as on screen (current)', screen: true },
+  screen: { label: 'Same as on screen', screen: true },
 };
 const LATENCIES = [['balanced', 'Medium (current)'], ['interactive', 'Small'], ['playback', 'Large']];
-const DEFAULTS = { enabled: false, engine: 'original', latency: 'balanced', singleStem: false, bgEngine: 'lightest', blend: true, blendEngine: 'screen' };
+const DEFAULTS = { enabled: false, engine: 'original', latency: 'balanced', singleStem: false, bgEngine: 'lightest', blend: true, blendEngine: 'lighter' };
 const MAX_SAMPLES = 900; // 15 min of playing at 1/s
 const MAX_EVENTS = 200;
 
@@ -44,7 +44,7 @@ const cfg = { ...DEFAULTS, ...readJSON('diag', {}) };
 if (cfg.bgLight === false && !readJSON('diag', {}).bgEngine) cfg.bgEngine = 'same'; // older checkbox setting
 delete cfg.bgLight;
 if (!BG_MODES[cfg.bgEngine]) cfg.bgEngine = 'lightest';
-if (!BLEND_MODES[cfg.blendEngine]) cfg.blendEngine = 'screen';
+if (!BLEND_MODES[cfg.blendEngine]) cfg.blendEngine = 'lighter';
 if (/[?&]debug\b/.test(location.search)) cfg.enabled = true;
 const saved = readJSON('diagLog', {});
 const log = { samples: saved.samples || [], events: saved.events || [], bench: saved.bench || '' };
@@ -308,7 +308,7 @@ function setEnabled(on) {
   }
   render();
   deps.toast(on ? 'Diagnostics on (bottom of the page)' : 'Diagnostics off');
-  if (!on && (cfg.engine !== 'original' || cfg.latency !== 'balanced' || cfg.singleStem || cfg.bgEngine !== 'lightest' || cfg.blend === false || cfg.blendEngine !== 'screen')) {
+  if (!on && (cfg.engine !== 'original' || cfg.latency !== 'balanced' || cfg.singleStem || cfg.bgEngine !== 'lightest' || cfg.blend === false || cfg.blendEngine !== 'lighter')) {
     deps.toast('Diagnostics off — restart the app to drop the test switches');
   }
 }

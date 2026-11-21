@@ -600,7 +600,7 @@ function syncEngineToVisibility() {
 let blendPrepTimer;
 function blendConfig() {
   const m = diagBlendMode();
-  if (!m) return BLEND_CONFIG ?? engineConfigFor(false);
+  if (!m) return BLEND_CONFIG;
   return m.screen ? engineConfigFor(false) : m.config;
 }
 function prepareBlendSoon(delay = 400) {
