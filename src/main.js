@@ -389,10 +389,10 @@ const WINDOW_MS = 12000;
 
 function ensureAudio() {
   if (state.audioCtx) return state.audioCtx;
-  // Default ('interactive') audio buffers. 'playback' (bigger buffers) was tried
-  // for the locked-phone static, but on a Pixel 8 it made on-screen playback
-  // stutter, so the background problem is handled by switching the stretch to a
-  // lighter setting while hidden instead (see engineConfigFor).
+  // Medium ('balanced') audio buffers: on a Pixel 8 this played best. Small
+  // ('interactive', the browser default) was a bit worse, and large ('playback')
+  // made on-screen playback stutter. The locked-phone problem is handled by
+  // switching the stretch to a lighter setting while hidden (see engineConfigFor).
   const AC = window.AudioContext || window.webkitAudioContext;
   let ctx;
   try { ctx = new AC({ latencyHint: diagLatency() }); } catch { ctx = new AC(); }
