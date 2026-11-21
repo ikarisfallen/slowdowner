@@ -759,6 +759,7 @@ async function togglePlay() {
   setPlayIcon(true);
   acquireWakeLock();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'playing';
+  sessionAudioPlay();
   raf = requestAnimationFrame(loop);
 }
 
@@ -769,6 +770,7 @@ function pausePlayback() {
   state.playing = false;
   setPlayIcon(false);
   releaseWakeLock();
+  sessionAudioPause();
   if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
   cancelAnimationFrame(raf);
 }
@@ -1904,14 +1906,50 @@ function persistSettings() {
 }
 
 // ---------- media session ----------
+// Headset buttons and lock-screen controls go through the Media Session. On
+// Android, Chrome only routes them to a page that is playing an <audio>/<video>
+// element (Web Audio alone doesn't count), so a silent looping <audio> plays
+// alongside our playback to own the session.
+let sessionAudio = null;
+function silentWavUrl(secs = 10, sr = 8000) {
+  // 8-bit mono PCM; 128 = silence. 10 s because Chrome ignores very short media.
+  const n = secs * sr, b = new ArrayBuffer(44 + n), v = new DataView(b);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  ws(36, 'data'); v.setUint32(40, n, true);
+  new Uint8Array(b, 44).fill(128);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function sessionAudioPlay() {
+  if (!('mediaSession' in navigator)) return;
+  if (!sessionAudio) {
+    sessionAudio = new Audio(silentWavUrl());
+    sessionAudio.loop = true;
+    // Paused from outside (a call, another app taking the audio, the system):
+    // pause our playback too. Our own pauses happen after state.playing = false.
+    sessionAudio.addEventListener('pause', () => { if (state.playing) pausePlayback(); });
+  }
+  sessionAudio.play().catch(() => {});
+}
+function sessionAudioPause() {
+  try { sessionAudio?.pause(); } catch {}
+}
+
 function setMediaMetadata(song) {
   if (!('mediaSession' in navigator)) return;
   navigator.mediaSession.metadata = new MediaMetadata({ title: song.name, artist: 'Slowdowner' });
   const h = navigator.mediaSession;
-  h.setActionHandler('play', () => togglePlay());
-  h.setActionHandler('pause', () => pausePlayback());
-  h.setActionHandler('seekbackward', () => nudge(-5));
-  h.setActionHandler('seekforward', () => nudge(5));
+  const set = (action, fn) => { try { h.setActionHandler(action, fn); } catch {} }; // unsupported actions throw
+  set('play', () => { if (!state.playing) togglePlay(); });
+  set('pause', () => { if (state.playing) pausePlayback(); });
+  set('stop', () => { if (state.playing) pausePlayback(); });
+  set('seekbackward', () => nudge(-5));
+  set('seekforward', () => nudge(5));
+  // no tracks to skip: next/previous jump between markers (or slide the marker loop)
+  set('nexttrack', () => markerNav(1));
+  set('previoustrack', () => markerNav(-1));
 }
 
 // ---------- ui helpers ----------
